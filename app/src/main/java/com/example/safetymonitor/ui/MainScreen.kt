@@ -1,5 +1,6 @@
 package com.example.safetymonitor.ui
 
+import android.content.Context
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -16,6 +17,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
@@ -31,24 +33,32 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
+import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
@@ -60,18 +70,78 @@ import com.example.safetymonitor.detection.vital.VitalDetector
 import com.example.safetymonitor.manager.SafetyManager
 import java.util.Locale
 
-private val ScreenBackground = Color(0xFFF6F5F2)
-private val CardBackground = Color.White
-private val AlertBackground = Color(0xFFF5D9D2)
-private val ProfileBackground = Color(0xFFE9E7E2)
-private val InputBackground = Color(0xFFE4E3DF)
-private val TextPrimary = Color(0xFF181818)
-private val TextSecondary = Color(0xFF666666)
-private val SuccessGreen = Color(0xFF18894D)
-private val DangerRed = Color(0xFFAA4741)
-private val BrightRed = Color(0xFFFF2020)
-private val Gold = Color(0xFFB89832)
-private val LoginYellow = Color(0xFFFFC400)
+private data class AppPalette(
+    val screenBackground: Color,
+    val cardBackground: Color,
+    val alertBackground: Color,
+    val profileBackground: Color,
+    val inputBackground: Color,
+    val textPrimary: Color,
+    val textSecondary: Color,
+    val successGreen: Color,
+    val dangerRed: Color,
+    val brightRed: Color,
+    val gold: Color,
+    val loginYellow: Color,
+    val neutralButtonBackground: Color,
+    val logoutBackground: Color,
+    val logoutText: Color
+)
+
+private val LightPalette = AppPalette(
+    screenBackground = Color(0xFFF6F5F2),
+    cardBackground = Color.White,
+    alertBackground = Color(0xFFF5D9D2),
+    profileBackground = Color(0xFFE9E7E2),
+    inputBackground = Color(0xFFE4E3DF),
+    textPrimary = Color(0xFF181818),
+    textSecondary = Color(0xFF666666),
+    successGreen = Color(0xFF18894D),
+    dangerRed = Color(0xFFAA4741),
+    brightRed = Color(0xFFFF2020),
+    gold = Color(0xFFB89832),
+    loginYellow = Color(0xFFFFC400),
+    neutralButtonBackground = Color(0xFFE5E4DF),
+    logoutBackground = Color(0xFFFAFAFC),
+    logoutText = Color(0xFFFF2020)
+)
+
+// 화면 모드 변경 토글이 사용하는 색상이다. 새 화면도 이 팔레트를 통해 색을 선택한다.
+private val DarkPalette = AppPalette(
+    screenBackground = Color(0xFF111111),
+    cardBackground = Color(0xFF242423),
+    alertBackground = Color(0xFF4B2A29),
+    profileBackground = Color(0xFF242423),
+    inputBackground = Color(0xFF363634),
+    textPrimary = Color(0xFFF2F0EB),
+    textSecondary = Color(0xFFAAA7A2),
+    successGreen = Color(0xFF18A65D),
+    dangerRed = Color(0xFFD88980),
+    brightRed = Color(0xFFFF3434),
+    gold = Color(0xFFB89832),
+    loginYellow = Color(0xFFFFC400),
+    neutralButtonBackground = Color(0xFF3A3A38),
+    logoutBackground = Color(0xFF242423),
+    logoutText = Color(0xFFF2F0EB)
+)
+
+private val LocalAppPalette = staticCompositionLocalOf { LightPalette }
+
+@get:Composable private val ScreenBackground get() = LocalAppPalette.current.screenBackground
+@get:Composable private val CardBackground get() = LocalAppPalette.current.cardBackground
+@get:Composable private val AlertBackground get() = LocalAppPalette.current.alertBackground
+@get:Composable private val ProfileBackground get() = LocalAppPalette.current.profileBackground
+@get:Composable private val InputBackground get() = LocalAppPalette.current.inputBackground
+@get:Composable private val TextPrimary get() = LocalAppPalette.current.textPrimary
+@get:Composable private val TextSecondary get() = LocalAppPalette.current.textSecondary
+@get:Composable private val SuccessGreen get() = LocalAppPalette.current.successGreen
+@get:Composable private val DangerRed get() = LocalAppPalette.current.dangerRed
+@get:Composable private val BrightRed get() = LocalAppPalette.current.brightRed
+@get:Composable private val Gold get() = LocalAppPalette.current.gold
+@get:Composable private val LoginYellow get() = LocalAppPalette.current.loginYellow
+@get:Composable private val NeutralButtonBackground get() = LocalAppPalette.current.neutralButtonBackground
+@get:Composable private val LogoutBackground get() = LocalAppPalette.current.logoutBackground
+@get:Composable private val LogoutText get() = LocalAppPalette.current.logoutText
 
 private enum class AppScreen {
     LOGIN,
@@ -111,10 +181,14 @@ fun MainScreen(
     vitalDetector: VitalDetector,
     beaconDetector: BeaconDetector
 ) {
+    val context = LocalContext.current
+    val displayPreferences = remember(context) {
+        context.getSharedPreferences("display_mode", Context.MODE_PRIVATE)
+    }
     var currentScreen by remember { mutableStateOf(AppScreen.LOGIN) }
     var pendingAction by remember { mutableStateOf<PendingAction?>(null) }
     var resultType by remember { mutableStateOf<ResultType?>(null) }
-    var lightMode by remember { mutableStateOf(true) }
+    var lightMode by remember { mutableStateOf(displayPreferences.getBoolean("light_mode", true)) }
     var newPassword by remember { mutableStateOf("") }
     var passwordConfirmation by remember { mutableStateOf("") }
     var profile by remember { mutableStateOf(WorkerProfile()) }
@@ -156,6 +230,27 @@ fun MainScreen(
         }
     }
 
+    val palette = if (lightMode) LightPalette else DarkPalette
+    CompositionLocalProvider(LocalAppPalette provides palette) {
+    MaterialTheme(
+        colorScheme = if (lightMode) {
+            lightColorScheme(
+                primary = palette.gold,
+                background = palette.screenBackground,
+                surface = palette.cardBackground,
+                onBackground = palette.textPrimary,
+                onSurface = palette.textPrimary
+            )
+        } else {
+            darkColorScheme(
+                primary = palette.gold,
+                background = palette.screenBackground,
+                surface = palette.cardBackground,
+                onBackground = palette.textPrimary,
+                onSurface = palette.textPrimary
+            )
+        }
+    ) {
     BackHandler(
         enabled = currentScreen != AppScreen.LOGIN && currentScreen != AppScreen.DASHBOARD
     ) {
@@ -183,7 +278,10 @@ fun MainScreen(
         )
         AppScreen.DISPLAY_MODE -> DisplayModeScreen(
             lightMode = lightMode,
-            onModeChange = { lightMode = it },
+            onModeChange = {
+                lightMode = it
+                displayPreferences.edit().putBoolean("light_mode", it).apply()
+            },
             onNavigate = { currentScreen = it }
         )
         AppScreen.PASSWORD -> PasswordScreen(
@@ -251,6 +349,8 @@ fun MainScreen(
             }
         )
     }
+    }
+    }
 }
 
 @Composable
@@ -267,7 +367,7 @@ private fun LoginScreen(onLogin: () -> Unit) {
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         CardContainer(CardBackground) {
-            Text("WORK SAFE", fontSize = 21.sp, fontWeight = FontWeight.Black)
+            Text("WORK SAFE", color = TextPrimary, fontSize = 21.sp, fontWeight = FontWeight.Black)
             Text("작업자 안전 모니터링", color = TextSecondary, fontSize = 10.sp)
             Spacer(Modifier.height(6.dp))
             Box(Modifier.width(48.dp).height(2.dp).background(LoginYellow))
@@ -353,7 +453,7 @@ private fun DashboardScreen(
 private fun DashboardHeader(profile: WorkerProfile, onNavigate: (AppScreen) -> Unit) {
     MenuHeader(onNavigate = onNavigate) {
         Column(Modifier.weight(1f)) {
-            Text("WORK SAFE", fontSize = 21.sp, fontWeight = FontWeight.Black)
+            Text("WORK SAFE", color = TextPrimary, fontSize = 21.sp, fontWeight = FontWeight.Black)
             Text("${profile.name} · ${profile.team} · ID ${profile.id}", color = TextSecondary, fontSize = 10.sp)
         }
     }
@@ -376,11 +476,28 @@ private fun ProfileScreen(
             FormLabel("이름")
             FilledInput(name, { name = it })
             FormLabel("성별")
-            FilledInput(gender, { gender = it })
+            Row(modifier = Modifier.fillMaxWidth()) {
+                listOf("남" to "남성", "여" to "여성").forEach { (value, label) ->
+                    Row(
+                        modifier = Modifier
+                            .weight(1f)
+                            .selectable(
+                                selected = gender == value,
+                                onClick = { gender = value },
+                                role = Role.RadioButton
+                            ),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        RadioButton(selected = gender == value, onClick = null)
+                        Text(label, fontSize = 12.sp)
+                    }
+                }
+            }
             FormLabel("나이")
-            FilledInput(age, { age = it }, KeyboardType.Number)
+            // 숫자 키보드만으로는 붙여넣기를 막지 못하므로 입력값에서도 숫자만 남긴다.
+            FilledInput(age, { input -> age = input.filter { it in '0'..'9' }.take(3) }, KeyboardType.Number)
             Spacer(Modifier.height(8.dp))
-            GoldButton("변경사항 저장") {
+            GoldButton("변경사항 저장", enabled = age.isNotBlank()) {
                 onSave(profile.copy(name = name, gender = gender, age = age))
             }
         }
@@ -437,7 +554,7 @@ private fun PasswordScreen(
                 hint = "다시 입력"
             )
             Spacer(Modifier.height(8.dp))
-            GoldButton("비밀번호 변경", onChangePassword)
+            GoldButton("비밀번호 변경", onClick = onChangePassword)
         }
     }
 }
@@ -461,7 +578,7 @@ private fun WithdrawScreen(
                 onClick = onWithdraw,
                 modifier = Modifier.fillMaxWidth().height(44.dp),
                 shape = RoundedCornerShape(4.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = DangerRed)
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFAA4741))
             ) {
                 Text("회원 탈퇴", fontWeight = FontWeight.Bold)
             }
@@ -487,6 +604,7 @@ private fun SettingsScaffold(
             Text(
                 title,
                 modifier = Modifier.weight(1f),
+                color = TextPrimary,
                 fontSize = 17.sp,
                 fontWeight = FontWeight.Bold
             )
@@ -502,20 +620,30 @@ private fun MenuHeader(
     content: @Composable RowScope.() -> Unit
 ) {
     var menuExpanded by remember { mutableStateOf(false) }
+    val darkSettingsHeader = onBack != null && LocalAppPalette.current == DarkPalette
 
     Row(
-        modifier = Modifier.fillMaxWidth().background(CardBackground).padding(start = 10.dp),
+        modifier = Modifier.fillMaxWidth()
+            .background(if (darkSettingsHeader) ScreenBackground else CardBackground)
+            .padding(start = 10.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         if (onBack != null) {
             IconButton(onClick = onBack) {
-                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "뒤로가기")
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "뒤로가기", tint = TextPrimary)
             }
         }
         content()
         Box {
-            IconButton(onClick = { menuExpanded = true }) {
-                Icon(Icons.Default.Menu, contentDescription = "메뉴")
+            IconButton(
+                onClick = { menuExpanded = true },
+                modifier = if (darkSettingsHeader) {
+                    Modifier.background(CardBackground, RoundedCornerShape(5.dp))
+                } else {
+                    Modifier
+                }
+            ) {
+                Icon(Icons.Default.Menu, contentDescription = "메뉴", tint = TextPrimary)
             }
             DropdownMenu(
                 expanded = menuExpanded,
@@ -531,9 +659,9 @@ private fun MenuHeader(
 }
 
 @Composable
-private fun MenuItem(text: String, color: Color = TextPrimary, onClick: () -> Unit) {
+private fun MenuItem(text: String, color: Color? = null, onClick: () -> Unit) {
     DropdownMenuItem(
-        text = { Text(text, color = color, fontSize = 12.sp) },
+        text = { Text(text, color = color ?: TextPrimary, fontSize = 12.sp) },
         onClick = onClick
     )
 }
@@ -569,9 +697,10 @@ private fun FilledInput(
 }
 
 @Composable
-private fun GoldButton(text: String, onClick: () -> Unit) {
+private fun GoldButton(text: String, enabled: Boolean = true, onClick: () -> Unit) {
     Button(
         onClick = onClick,
+        enabled = enabled,
         modifier = Modifier.fillMaxWidth().height(44.dp),
         shape = RoundedCornerShape(3.dp),
         colors = ButtonDefaults.buttonColors(containerColor = Gold)
@@ -589,7 +718,7 @@ private fun ConfirmDialog(onCancel: () -> Unit, onConfirm: () -> Unit) {
             Text("이 작업은 되돌릴 수 없습니다.", color = TextSecondary, fontSize = 10.sp)
             Spacer(Modifier.height(12.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                DialogButton("취소", Color(0xFFE5E4DF), TextPrimary, onCancel, Modifier.weight(1f))
+                DialogButton("취소", NeutralButtonBackground, TextPrimary, onCancel, Modifier.weight(1f))
                 DialogButton("확인", Gold, Color.White, onConfirm, Modifier.weight(1f))
             }
         }
@@ -619,7 +748,7 @@ private fun ResultDialog(resultType: ResultType, onDismiss: () -> Unit) {
             Spacer(Modifier.height(12.dp))
             DialogButton(
                 text = if (success) "확인" else "닫기",
-                background = if (success) Gold else Color(0xFFE5E4DF),
+                background = if (success) Gold else NeutralButtonBackground,
                 contentColor = if (success) Color.White else TextPrimary,
                 onClick = onDismiss
             )
@@ -685,7 +814,7 @@ private fun AlertCard(acceleration: Float?, fallDetected: Boolean) {
         if (fallDetected) {
             Spacer(Modifier.height(8.dp))
             Box(
-                Modifier.background(DangerRed, RoundedCornerShape(4.dp))
+                Modifier.background(Color(0xFFAA4741), RoundedCornerShape(4.dp))
                     .padding(horizontal = 10.dp, vertical = 6.dp)
             ) {
                 Text("HIGH", color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold)
@@ -727,13 +856,13 @@ private fun formatAcceleration(value: Float): String =
     String.format(Locale.KOREA, "%.1f m/s²", value)
 
 @Composable
-private fun InfoRow(label: String, value: String, valueColor: Color = TextPrimary) {
+private fun InfoRow(label: String, value: String, valueColor: Color? = null) {
     Row(
         modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Text(label, modifier = Modifier.weight(1f), fontSize = 12.sp)
-        Text(value, color = valueColor, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+        Text(value, color = valueColor ?: TextPrimary, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
     }
 }
 
@@ -745,7 +874,7 @@ private fun CardContainer(
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(5.dp),
-        colors = CardDefaults.cardColors(containerColor = backgroundColor),
+        colors = CardDefaults.cardColors(containerColor = backgroundColor, contentColor = TextPrimary),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
     ) {
         Column(
@@ -764,7 +893,7 @@ private fun LogoutButton(onLogout: () -> Unit) {
             onClick = onLogout,
             modifier = Modifier.fillMaxWidth().height(48.dp),
             shape = RoundedCornerShape(4.dp),
-            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFAFAFC), contentColor = BrightRed),
+            colors = ButtonDefaults.buttonColors(containerColor = LogoutBackground, contentColor = LogoutText),
             elevation = ButtonDefaults.buttonElevation(defaultElevation = 0.dp)
         ) {
             Text("로그아웃", fontSize = 13.sp, fontWeight = FontWeight.Bold)
