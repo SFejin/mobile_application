@@ -1,0 +1,8 @@
+# Local Android/Gradle files
+.gradle/
+.kotlin/
+**/build/
+local.properties
+.idea/
+*.iml
+.DS_Store

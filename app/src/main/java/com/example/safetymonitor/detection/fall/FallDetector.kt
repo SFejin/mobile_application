@@ -14,7 +14,7 @@ import kotlin.math.abs
 import kotlin.math.sqrt
 
 // 스마트폰의 가속도계와 자이로스코프를 이용해 낙상을 감지하는 클래스다.
-// 자유낙하 -> 충격 -> 회전 -> 정지 또는 착용 중 충격 -> 회전 -> 정지 순서로 판정한다.
+// 자유낙하 -> 충격 -> 큰 회전 -> 일정 시간 정지 순서로 상태를 판정한다.
 // 최종 낙상 판단 결과는 SafetyEvent 콜백으로 전달한다.
 class FallDetector(
     context: Context,
@@ -27,10 +27,6 @@ class FallDetector(
         val freeFallMax: Float = 3.0f,
         val impactMin: Float = 18.0f,
         val rotationMin: Float = 2.5f,
-        // 착용 중에는 자유낙하가 뚜렷하지 않아 충격부터 후보로 잡는다.
-        val wornImpactMin: Float = 15.0f,
-        val wornRotationMin: Float = 1.5f,
-        val rotationBeforeImpactWindowMillis: Long = 1_000L,
         val stillAccelerationTolerance: Float = 1.2f,
         val stillGyroscopeMax: Float = 0.35f,
         val freeFallToImpactTimeoutMillis: Long = 1_500L,
@@ -58,13 +54,15 @@ class FallDetector(
     private val gyroscope = sensorManager.getDefaultSensor(Sensor.TYPE_GYROSCOPE)
 
     private var listener: ((SafetyEvent) -> Unit)? = null
-    private var accelerationListener: ((Float) -> Unit)? = null
     private var running = false
+    private var motionListener: ((MotionReading) -> Unit)? = null
+    private var reading = MotionReading()
+    private var lastUiUpdateMillis = 0L
+    private var accelerationAtMillis: Long? = null
+    private var gyroscopeAtMillis: Long? = null
+    private var samplesReady = false
     private var stateEnteredAtMillis = 0L
     private var stillnessStartedAtMillis: Long? = null
-    private var impactHadFreeFall = false
-    private var recentRotationAtMillis: Long? = null
-    private var recentRotationMagnitude = 0f
 
     // 현재 상태 머신의 단계를 반환한다. 외부에서는 읽기만 가능하다.
     var currentState: State = State.NORMAL
@@ -87,25 +85,40 @@ class FallDetector(
         this.listener = listener
     }
 
-    // 화면에서 실시간 가속도값을 받을 콜백을 등록한다.
-    // null을 전달하면 기존 콜백 연결을 해제한다.
-    fun setAccelerationListener(listener: ((Float) -> Unit)?) {
-        accelerationListener = listener
+    fun setMotionListener(listener: (MotionReading) -> Unit) {
+        motionListener = listener
+        listener(reading)
     }
 
-    // 센서가 있는지 확인한 뒤 가속도계와 자이로스코프 수신을 시작한다. 필요한 센서가 없으면 NORMAL 이벤트로 원인을 전달한다.
+    // 사용 가능한 센서는 표시용으로 수신한다. 낙상 판정에는 두 센서 모두 필요하다.
     override fun start() {
         if (running) return
 
-        if (!sensorsAvailable) {
-            publishNormal("낙상 감지에 필요한 가속도계 또는 자이로스코프가 없습니다.")
-            return
-        }
-
         running = true
-        reset(notify = true)
-        sensorManager.registerListener(this, accelerometer, SensorManager.SENSOR_DELAY_GAME)
-        sensorManager.registerListener(this, gyroscope, SensorManager.SENSOR_DELAY_GAME)
+        accelerationAtMillis = null
+        gyroscopeAtMillis = null
+        samplesReady = false
+        accelerationMagnitude = SensorManager.GRAVITY_EARTH
+        gyroscopeMagnitude = 0f
+        reset(notify = false)
+        val accelerationActive = accelerometer?.let {
+            sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_GAME)
+        } ?: false
+        val rotationActive = gyroscope?.let {
+            sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_GAME)
+        } ?: false
+        reading = MotionReading(
+            accelerometerActive = accelerationActive,
+            gyroscopeActive = rotationActive,
+            monitoring = true
+        )
+        lastUiUpdateMillis = 0L
+        motionListener?.invoke(reading)
+        publishNormal(if (accelerationActive && rotationActive) {
+            "가속도·자이로 센서 수신 대기 중"
+        } else {
+            "낙상 감지 불가: 가속도계 또는 자이로스코프가 없거나 시작할 수 없습니다."
+        })
     }
 
     // 센서 리스너를 해제하고 상태를 초기화한다.
@@ -115,6 +128,11 @@ class FallDetector(
         sensorManager.unregisterListener(this)
         running = false
         reset(notify = false)
+        accelerationAtMillis = null
+        gyroscopeAtMillis = null
+        reading = MotionReading()
+        motionListener?.invoke(reading)
+        publishNormal("센서 측정 중지")
     }
 
     // 상태 머신을 NORMAL 상태로 되돌린다.
@@ -124,26 +142,47 @@ class FallDetector(
 
     // 새로운 센서값을 받으면 3축 합성 크기를 갱신하고 상태 머신을 평가한다.
     override fun onSensorChanged(event: SensorEvent) {
+        if (!running) return
+        val now = SystemClock.elapsedRealtime()
         val magnitude = calculateMagnitude(event.values)
-        val nowMillis = SystemClock.elapsedRealtime()
+        val vector = MotionVector(event.values[0], event.values[1], event.values[2], magnitude)
 
         when (event.sensor.type) {
             Sensor.TYPE_ACCELEROMETER -> {
                 accelerationMagnitude = magnitude
-                accelerationListener?.invoke(magnitude)
+                accelerationAtMillis = now
+                reading = reading.copy(acceleration = vector)
             }
             Sensor.TYPE_GYROSCOPE -> {
                 gyroscopeMagnitude = magnitude
-                // 착용 상태의 회전은 충격 직전에 먼저 나타날 수 있다.
-                if (magnitude >= thresholds.wornRotationMin) {
-                    recentRotationAtMillis = nowMillis
-                    recentRotationMagnitude = magnitude
-                }
+                gyroscopeAtMillis = now
+                reading = reading.copy(gyroscope = vector)
             }
             else -> return
         }
 
-        evaluate(nowMillis, event.sensor.type)
+        // Detect with every sample; limit only UI updates to 10 Hz.
+        if (now - lastUiUpdateMillis >= 100L) {
+            lastUiUpdateMillis = now
+            motionListener?.invoke(reading)
+        }
+        val accelerationAt = accelerationAtMillis
+        val rotationAt = gyroscopeAtMillis
+        if (reading.accelerometerActive && reading.gyroscopeActive &&
+            accelerationAt != null && rotationAt != null &&
+            now - accelerationAt <= 500L && now - rotationAt <= 500L
+        ) {
+            if (!samplesReady) {
+                samplesReady = true
+                publishNormal("낙상 감지 정상 작동 중")
+            }
+            evaluate(now)
+        } else {
+            // Never confirm stillness using a stalled sensor's previous value.
+            reset(notify = false)
+            if (samplesReady) publishNormal("센서 수신 지연: 두 센서의 새 측정값 대기 중")
+            samplesReady = false
+        }
     }
 
     // 센서 정확도 변경은 현재 낙상 판정에 사용하지 않는다.
@@ -161,24 +200,18 @@ class FallDetector(
     }
 
     // 최신 센서값과 현재 단계를 비교해 다음 상태로 전환한다. 내부 상태와 SafetyEvent를 갱신한다.
-    private fun evaluate(nowMillis: Long, sensorType: Int) {
+    private fun evaluate(nowMillis: Long) {
         when (currentState) {
             State.NORMAL -> {
-                if (sensorType == Sensor.TYPE_ACCELEROMETER) {
-                    when {
-                        accelerationMagnitude < thresholds.freeFallMax ->
-                            transitionTo(State.FREE_FALL, nowMillis)
-                        accelerationMagnitude >= thresholds.wornImpactMin ->
-                            enterImpact(nowMillis, wasFreeFall = false)
-                    }
+                if (accelerationMagnitude < thresholds.freeFallMax) {
+                    transitionTo(State.FREE_FALL, nowMillis)
                 }
             }
 
             State.FREE_FALL -> {
                 when {
-                    sensorType == Sensor.TYPE_ACCELEROMETER &&
-                        accelerationMagnitude >= thresholds.impactMin -> {
-                        enterImpact(nowMillis, wasFreeFall = true)
+                    accelerationMagnitude >= thresholds.impactMin -> {
+                        transitionTo(State.IMPACT, nowMillis)
                     }
 
                     nowMillis - stateEnteredAtMillis >
@@ -190,8 +223,7 @@ class FallDetector(
 
             State.IMPACT -> {
                 when {
-                    sensorType == Sensor.TYPE_GYROSCOPE &&
-                        gyroscopeMagnitude >= requiredRotationMin() -> {
+                    gyroscopeMagnitude >= thresholds.rotationMin -> {
                         transitionTo(State.ROTATION, nowMillis)
                     }
 
@@ -212,23 +244,6 @@ class FallDetector(
             }
         }
     }
-
-    // 자유낙하를 보지 못해도 충격과 전후 1초 내 회전이 함께 나타나면 정지 확인 단계로 진행한다.
-    private fun enterImpact(nowMillis: Long, wasFreeFall: Boolean) {
-        impactHadFreeFall = wasFreeFall
-        transitionTo(State.IMPACT, nowMillis)
-
-        val rotationAt = recentRotationAtMillis
-        if (rotationAt != null &&
-            nowMillis - rotationAt in 0..thresholds.rotationBeforeImpactWindowMillis &&
-            recentRotationMagnitude >= requiredRotationMin()
-        ) {
-            transitionTo(State.ROTATION, nowMillis)
-        }
-    }
-
-    private fun requiredRotationMin(): Float =
-        if (impactHadFreeFall) thresholds.rotationMin else thresholds.wornRotationMin
 
     // 큰 회전 이후 가속도와 각속도가 연속해서 안정적인지 검사한다. 조건을 만족하면 FALL_DETECTED 상태로 전환한다.
     private fun evaluateStillness(nowMillis: Long) {
@@ -262,10 +277,6 @@ class FallDetector(
         currentState = newState
         stateEnteredAtMillis = nowMillis
         if (newState != State.ROTATION) stillnessStartedAtMillis = null
-        if (newState == State.NORMAL) {
-            recentRotationAtMillis = null
-            recentRotationMagnitude = 0f
-        }
 
         when (newState) {
             State.NORMAL -> publishNormal("낙상 감지 정상 작동 중")
@@ -281,9 +292,6 @@ class FallDetector(
         currentState = State.NORMAL
         stateEnteredAtMillis = SystemClock.elapsedRealtime()
         stillnessStartedAtMillis = null
-        impactHadFreeFall = false
-        recentRotationAtMillis = null
-        recentRotationMagnitude = 0f
 
         if (notify) {
             publishNormal("낙상 감지 정상 작동 중")
@@ -307,7 +315,7 @@ class FallDetector(
             SafetyEvent(
                 type = DetectorType.FALL,
                 status = DetectionStatus.ALERT,
-                message = "낙상 감지: 충격, 회전 및 정지 상태 확인"
+                message = "낙상 감지: 자유낙하, 충격, 큰 회전 및 정지 상태 확인"
             )
         )
     }

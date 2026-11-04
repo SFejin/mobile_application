@@ -3,6 +3,10 @@
 
     <!-- 서버로 HTTP 요청을 보내기 위한 권한 -->
     <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
 
     <application
         android:allowBackup="true"
@@ -10,9 +14,20 @@
         android:theme="@style/Theme.SafetyMonitor"
         android:usesCleartextTraffic="true"> <!-- 로컬 http:// 통신 허용 -->
 
+        <service
+            android:name=".detection.fall.FallMonitoringService"
+            android:exported="false"
+            android:stopWithTask="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Continuous worker fall detection using accelerometer and gyroscope until logout, including while the screen is off." />
+        </service>
+
         <activity
             android:name=".MainActivity"
-            android:exported="true">
+            android:exported="true"
+            android:windowSoftInputMode="adjustResize">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />

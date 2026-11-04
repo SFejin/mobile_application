@@ -1,9 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Compose 앱에서는 이 테마가 splash/window 배경에만 사용된다 -->
+    <!-- Compose supplies the in-app light/dark palette. -->
     <style name="Theme.SafetyMonitor" parent="android:Theme.Material.Light.NoActionBar">
-        <item name="android:statusBarColor">@android:color/black</item>
-        <item name="android:navigationBarColor">@android:color/black</item>
-        <item name="android:windowBackground">@android:color/black</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:windowBackground">#F5F4F0</item>
+        <item name="android:windowLightStatusBar">true</item>
     </style>
 </resources>
