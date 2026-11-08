@@ -1,7 +1,7 @@
 package com.example.safetymonitor.ui
 
 enum class WorkSafePage {
-    LOGIN, HOME, PERSONAL_INFO, THEME, PASSWORD, WITHDRAW
+    LOGIN, HOME, BEACON_TRANSMITTER, PERSONAL_INFO, THEME, PASSWORD, WITHDRAW
 }
 
 data class WorkerProfile(

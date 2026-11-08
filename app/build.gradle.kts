@@ -56,4 +56,7 @@ dependencies {
     // --- Coroutines ---
     // Flow 기반 비동기 감지 결과 전달에 사용
     implementation(libs.coroutines.android)
+
+    // --- Testing ---
+    testImplementation(libs.junit)
 }
