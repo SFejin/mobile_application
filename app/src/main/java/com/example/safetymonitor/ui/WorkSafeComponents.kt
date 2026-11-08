@@ -2,6 +2,7 @@ package com.example.safetymonitor.ui
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -30,6 +31,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.ImeAction
@@ -65,18 +67,29 @@ fun WorkSafeField(
     imeAction: ImeAction = ImeAction.Next,
     onDone: (() -> Unit)? = null,
     outlined: Boolean = false,
-    isError: Boolean = false
+    isError: Boolean = false,
+    enabled: Boolean = true,
+    readOnly: Boolean = false,
+    supportingText: String? = null
 ) {
     val colors = MaterialTheme.colorScheme
     Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(5.dp)) {
-        Text(label, style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant)
+        Text(
+            label,
+            style = MaterialTheme.typography.bodySmall,
+            color = if (enabled) colors.onSurfaceVariant else colors.onSurfaceVariant.copy(alpha = 0.5f)
+        )
         BasicTextField(
             value = value,
             onValueChange = onValueChange,
             modifier = Modifier.fillMaxWidth()
                 .semantics { contentDescription = label },
+            enabled = enabled,
+            readOnly = readOnly,
             singleLine = true,
-            textStyle = MaterialTheme.typography.bodyLarge.copy(color = colors.onSurface),
+            textStyle = MaterialTheme.typography.bodyLarge.copy(
+                color = if (enabled) colors.onSurface else colors.onSurfaceVariant.copy(alpha = 0.6f)
+            ),
             cursorBrush = SolidColor(colors.primary),
             visualTransformation = if (password) PasswordVisualTransformation() else VisualTransformation.None,
             keyboardOptions = KeyboardOptions(
@@ -88,11 +101,19 @@ fun WorkSafeField(
             decorationBox = { innerTextField ->
                 Box(
                     Modifier.fillMaxWidth().heightIn(min = 48.dp)
-                        .background(if (outlined) colors.surface else colors.surfaceVariant, RoundedCornerShape(3.dp))
+                        .background(
+                            when {
+                                !enabled -> colors.surfaceVariant.copy(alpha = 0.4f)
+                                outlined -> colors.surface
+                                else -> colors.surfaceVariant
+                            },
+                            RoundedCornerShape(3.dp)
+                        )
                         .border(
                             width = 1.dp,
                             color = when {
                                 isError -> colors.error
+                                !enabled -> colors.outline.copy(alpha = 0.3f)
                                 outlined -> colors.outline
                                 else -> colors.surfaceVariant
                             },
@@ -108,6 +129,13 @@ fun WorkSafeField(
                 }
             }
         )
+        if (supportingText != null) {
+            Text(
+                supportingText,
+                style = MaterialTheme.typography.bodySmall,
+                color = if (isError) colors.error else colors.onSurfaceVariant
+            )
+        }
     }
 }
 
@@ -118,7 +146,8 @@ fun WorkSafeButton(
     modifier: Modifier = Modifier,
     danger: Boolean = false,
     emphasized: Boolean = false,
-    secondary: Boolean = false
+    secondary: Boolean = false,
+    enabled: Boolean = true
 ) {
     val colors = MaterialTheme.colorScheme
     val background = when {
@@ -135,9 +164,15 @@ fun WorkSafeButton(
     }
     Button(
         onClick = onClick,
+        enabled = enabled,
         modifier = modifier.heightIn(min = 48.dp),
         shape = RoundedCornerShape(3.dp),
-        colors = ButtonDefaults.buttonColors(containerColor = background, contentColor = foreground)
+        colors = ButtonDefaults.buttonColors(
+            containerColor = background,
+            contentColor = foreground,
+            disabledContainerColor = colors.surfaceVariant.copy(alpha = 0.5f),
+            disabledContentColor = colors.onSurfaceVariant.copy(alpha = 0.5f)
+        )
     ) {
         Text(text, style = MaterialTheme.typography.labelLarge)
     }
@@ -148,6 +183,7 @@ fun WorkSafeHeader(
     title: String,
     subtitle: String? = null,
     brand: Boolean = false,
+    onTitleTap: (() -> Unit)? = null,
     onMenuClick: (() -> Unit)? = null
 ) {
     Surface(color = MaterialTheme.colorScheme.surface, modifier = Modifier.fillMaxWidth()) {
@@ -155,7 +191,19 @@ fun WorkSafeHeader(
             Modifier.fillMaxWidth().heightIn(min = 56.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Column(Modifier.weight(1f).padding(start = if (brand) 0.dp else 12.dp)) {
+            val titleModifier = Modifier
+                .weight(1f)
+                .padding(start = if (brand) 0.dp else 12.dp)
+                .then(
+                    if (onTitleTap != null) {
+                        Modifier.clickable(
+                            role = Role.Button,
+                            onClickLabel = "비콘 설정 열기",
+                            onClick = onTitleTap
+                        )
+                    } else Modifier
+                )
+            Column(titleModifier) {
                 Text(title, style = if (brand) MaterialTheme.typography.headlineSmall else MaterialTheme.typography.titleMedium)
                 if (subtitle != null) {
                     Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)

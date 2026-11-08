@@ -1,5 +1,6 @@
 package com.example.safetymonitor.ui
 
+import android.os.SystemClock
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -15,20 +16,29 @@ import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import com.example.safetymonitor.detection.beacon.BeaconRole
 
 @Composable
-fun MainScreen(viewModel: WorkSafeViewModel) {
+fun MainScreen(
+    viewModel: WorkSafeViewModel,
+    onStartBeacon: (BeaconRole) -> Unit,
+    onResolveBeaconIssue: () -> Unit
+) {
     var menuExpanded by remember { mutableStateOf(false) }
     var loginError by rememberSaveable { mutableStateOf<String?>(null) }
     var dialog by remember { mutableStateOf<WorkSafeDialogState?>(null) }
     val page = viewModel.page
     val profile = viewModel.profile
+    var secretTapCount by remember(page) { mutableIntStateOf(0) }
+    var secretTapStartedAt by remember(page) { mutableLongStateOf(0L) }
 
     BackHandler(enabled = page != WorkSafePage.LOGIN && page != WorkSafePage.HOME) {
         menuExpanded = false
@@ -37,6 +47,7 @@ fun MainScreen(viewModel: WorkSafeViewModel) {
 
     val title = when (page) {
         WorkSafePage.LOGIN, WorkSafePage.HOME -> "WORK SAFE"
+        WorkSafePage.BEACON_TRANSMITTER -> "비콘 송신 설정"
         WorkSafePage.PERSONAL_INFO -> "개인 정보 변경"
         WorkSafePage.THEME -> "화면 모드 변경"
         WorkSafePage.PASSWORD -> "비밀번호 변경"
@@ -60,7 +71,22 @@ fun MainScreen(viewModel: WorkSafeViewModel) {
                     brand = page == WorkSafePage.LOGIN || page == WorkSafePage.HOME,
                     onMenuClick = if (page == WorkSafePage.LOGIN) null else {
                         { menuExpanded = !menuExpanded }
-                    }
+                    },
+                    onTitleTap = if (page == WorkSafePage.HOME) {
+                        {
+                            val now = SystemClock.elapsedRealtime()
+                            if (secretTapCount == 0 || now - secretTapStartedAt >= 3_000L) {
+                                secretTapCount = 0
+                                secretTapStartedAt = now
+                            }
+                            secretTapCount++
+                            if (secretTapCount == 7) {
+                                secretTapCount = 0
+                                menuExpanded = false
+                                viewModel.navigate(WorkSafePage.BEACON_TRANSMITTER)
+                            }
+                        }
+                    } else null
                 )
                 Box(Modifier.align(Alignment.BottomEnd)) {
                     SettingsDropdown(
@@ -85,10 +111,30 @@ fun MainScreen(viewModel: WorkSafeViewModel) {
                         motion = viewModel.motionReading,
                         fallMessage = viewModel.fallMessage,
                         fallAlert = viewModel.fallAlert,
+                        beacon = viewModel.beacon,
+                        onStartReceiver = { onStartBeacon(BeaconRole.RECEIVER) },
+                        onStopBeacon = viewModel::stopBeacon,
+                        onResolveBeaconIssue = onResolveBeaconIssue,
                         onLogout = {
                             loginError = null
                             viewModel.logout()
                         }
+                    )
+                    WorkSafePage.BEACON_TRANSMITTER -> BeaconTransmitterScreen(
+                        savedConfig = viewModel.transmitterConfig,
+                        snapshot = viewModel.beacon,
+                        onSaveConfig = { viewModel.saveTransmitterConfig(it) },
+                        onStartTransmitter = { config ->
+                            if (viewModel.saveTransmitterConfig(config)) {
+                                onStartBeacon(BeaconRole.TRANSMITTER)
+                            }
+                        },
+                        onStopBeacon = viewModel::stopBeacon,
+                        onReturnToReceiver = {
+                            viewModel.navigate(WorkSafePage.HOME)
+                            onStartBeacon(BeaconRole.RECEIVER)
+                        },
+                        onResolveIssue = onResolveBeaconIssue
                     )
                     WorkSafePage.PERSONAL_INFO -> PersonalInfoScreen(profile, onSave = { name, gender, age ->
                         val error = viewModel.updateProfile(name, gender, age)

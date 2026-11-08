@@ -6,6 +6,15 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.safetymonitor.detection.beacon.BeaconConfig
+import com.example.safetymonitor.detection.beacon.BeaconIssue
+import com.example.safetymonitor.detection.beacon.BeaconMonitoringService
+import com.example.safetymonitor.detection.beacon.BeaconMonitoringStore
+import com.example.safetymonitor.detection.beacon.BeaconPermissions
+import com.example.safetymonitor.detection.beacon.BeaconProtocol
+import com.example.safetymonitor.detection.beacon.BeaconRole
+import com.example.safetymonitor.detection.beacon.BeaconSettings
+import com.example.safetymonitor.detection.beacon.BeaconStatus
 import com.example.safetymonitor.detection.fall.FallMonitoringService
 import com.example.safetymonitor.detection.fall.FallMonitoringStore
 import com.example.safetymonitor.detection.fall.MotionReading
@@ -20,6 +29,13 @@ class WorkSafeViewModel(application: Application) : AndroidViewModel(application
         private set
     var fallAlert by mutableStateOf(false)
         private set
+    var beacon by mutableStateOf(BeaconMonitoringStore.state.value)
+        private set
+    var transmitterConfig by mutableStateOf(BeaconSettings.load(application))
+        private set
+    var pendingBeaconRole: BeaconRole? = null
+        private set
+    private var resumeBeaconAfterSettings = false
 
     init {
         loggedIn = FallMonitoringService.isEnabled(application)
@@ -30,13 +46,31 @@ class WorkSafeViewModel(application: Application) : AndroidViewModel(application
                 fallAlert = it.alert
             }
         }
+        viewModelScope.launch {
+            BeaconMonitoringStore.state.collect { beacon = it }
+        }
     }
 
     fun onAppVisible() {
-        if (loggedIn && !FallMonitoringStore.state.value.motion.monitoring) {
-            if (!FallMonitoringService.start(getApplication())) {
-                loggedIn = false
-                page = WorkSafePage.LOGIN
+        if (!loggedIn) return
+        if (!FallMonitoringStore.state.value.motion.monitoring &&
+            !FallMonitoringService.start(getApplication())
+        ) {
+            stopBeacon()
+            loggedIn = false
+            page = WorkSafePage.LOGIN
+            return
+        }
+        if (resumeBeaconAfterSettings) {
+            completeBeaconStart()
+        } else if (pendingBeaconRole == null) {
+            val current = BeaconMonitoringStore.state.value
+            if (current.status == BeaconStatus.IDLE ||
+                (current.status == BeaconStatus.BLOCKED &&
+                    current.role == BeaconRole.RECEIVER &&
+                    BeaconPermissions.issue(getApplication(), BeaconRole.RECEIVER) == BeaconIssue.NONE)
+            ) {
+                BeaconMonitoringService.startReceiver(getApplication())
             }
         }
     }
@@ -65,11 +99,49 @@ class WorkSafeViewModel(application: Application) : AndroidViewModel(application
         }
         loggedIn = true
         page = WorkSafePage.HOME
+        BeaconMonitoringService.startReceiver(getApplication())
         return null
     }
 
     fun navigate(destination: WorkSafePage) {
         if (loggedIn && destination != WorkSafePage.LOGIN) page = destination
+    }
+
+    fun saveTransmitterConfig(config: BeaconConfig): Boolean {
+        if (!loggedIn || !BeaconProtocol.isValid(config)) return false
+        BeaconSettings.save(getApplication(), config)
+        transmitterConfig = config
+        return true
+    }
+
+    /** Stop the old role before a permission/settings round trip can leave the app. */
+    fun prepareBeaconStart(role: BeaconRole): Boolean {
+        if (!loggedIn || pendingBeaconRole != null) return false
+        pendingBeaconRole = role
+        BeaconMonitoringService.stop(getApplication())
+        return true
+    }
+
+    fun waitForBeaconSettings() {
+        if (pendingBeaconRole != null) resumeBeaconAfterSettings = true
+    }
+
+    fun completeBeaconStart() {
+        val role = pendingBeaconRole ?: return
+        pendingBeaconRole = null
+        resumeBeaconAfterSettings = false
+        if (!loggedIn) return
+        when (role) {
+            BeaconRole.RECEIVER -> BeaconMonitoringService.startReceiver(getApplication())
+            BeaconRole.TRANSMITTER ->
+                BeaconMonitoringService.startTransmitter(getApplication(), transmitterConfig)
+        }
+    }
+
+    fun stopBeacon() {
+        pendingBeaconRole = null
+        resumeBeaconAfterSettings = false
+        BeaconMonitoringService.stop(getApplication())
     }
 
     fun updateProfile(name: String, gender: String, age: String): String? {
@@ -97,6 +169,7 @@ class WorkSafeViewModel(application: Application) : AndroidViewModel(application
     }
 
     fun logout() {
+        stopBeacon()
         FallMonitoringService.stop(getApplication())
         loggedIn = false
         page = WorkSafePage.LOGIN
