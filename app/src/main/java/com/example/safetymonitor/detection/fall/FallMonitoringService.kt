@@ -15,16 +15,20 @@ import android.os.PowerManager
 import com.example.safetymonitor.MainActivity
 import com.example.safetymonitor.R
 import com.example.safetymonitor.detection.DetectionStatus
+import com.example.safetymonitor.sos.SosController
+import android.content.pm.ApplicationInfo
 
 /** Continues accelerometer + gyroscope monitoring independently of the Activity. */
 class FallMonitoringService : Service() {
     private lateinit var detector: FallDetector
+    private lateinit var sos: SosController
     private var wakeLock: PowerManager.WakeLock? = null
     private var started = false
     private var shuttingDown = false
 
     override fun onCreate() {
         super.onCreate()
+        sos = SosController(this)
         getSystemService(NotificationManager::class.java).createNotificationChannel(
             NotificationChannel(CHANNEL_ID, "안전 센서 측정", NotificationManager.IMPORTANCE_LOW)
         )
@@ -33,6 +37,7 @@ class FallMonitoringService : Service() {
             setEventListener { event ->
                 val alert = event.status == DetectionStatus.ALERT
                 FallMonitoringStore.updateStatus(event.message, alert)
+                if (alert && started && !shuttingDown) sos.detect()
                 val manager = getSystemService(NotificationManager::class.java)
                 if (started && !shuttingDown && manager.areNotificationsEnabled()) {
                     manager.notify(NOTIFICATION_ID, notification(event.message, alert))
@@ -61,11 +66,17 @@ class FallMonitoringService : Service() {
                 .apply { acquire() }
             detector.start()
         }
+        if (intent?.action == SosController.ACTION_CANCEL) {
+            sos.cancel(intent.getStringExtra(SosController.EXTRA_ID).orEmpty())
+        }
+        if (intent?.action == SosController.ACTION_TEST &&
+            applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0) sos.detect(test = true)
         return START_STICKY
     }
 
     override fun onDestroy() {
         shuttingDown = true
+        sos.close()
         detector.stop()
         wakeLock?.let { if (it.isHeld) it.release() }
         wakeLock = null

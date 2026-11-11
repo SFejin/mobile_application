@@ -19,10 +19,30 @@ import com.example.safetymonitor.detection.fall.FallMonitoringService
 import com.example.safetymonitor.detection.fall.FallMonitoringStore
 import com.example.safetymonitor.detection.fall.MotionReading
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import android.content.Intent
+import android.content.pm.ApplicationInfo
+import com.example.safetymonitor.sos.*
 
 /** Offline demo account only. Credentials and profile never leave this process. */
 class WorkSafeViewModel(application: Application) : AndroidViewModel(application) {
     private val preferences = application.getSharedPreferences("worksafe_theme", 0)
+    var sos by mutableStateOf(SosState())
+        private set
+    var sosSession by mutableStateOf<SosSession?>(null)
+        private set
+    var sosConnecting by mutableStateOf(false)
+        private set
+    var sosConnectionMessage by mutableStateOf<String?>(null)
+        private set
+    val sosServerAddress: String
+        get() = preferences.getString("sos_server", "http://34.22.75.168:8081")!!
+    val sosTestAvailable = application.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0
+    val sosNotificationsEnabled: Boolean
+        get() = getApplication<Application>().getSystemService(android.app.NotificationManager::class.java)
+            .areNotificationsEnabled()
+    private var connectionGeneration = 0
     var motionReading by mutableStateOf(MotionReading())
         private set
     var fallMessage by mutableStateOf("센서 측정 대기 중")
@@ -38,6 +58,9 @@ class WorkSafeViewModel(application: Application) : AndroidViewModel(application
     private var resumeBeaconAfterSettings = false
 
     init {
+        SosStore.initialize(application)
+        viewModelScope.launch { SosStore.state.collect { sos = it } }
+        viewModelScope.launch { SosStore.session.collect { sosSession = it } }
         loggedIn = FallMonitoringService.isEnabled(application)
         viewModelScope.launch {
             FallMonitoringStore.state.collect {
@@ -169,10 +192,60 @@ class WorkSafeViewModel(application: Application) : AndroidViewModel(application
     }
 
     fun logout() {
+        connectionGeneration++
+        val serverSession = SosStore.session.value
+        SosStore.connect(null)
+        serverSession?.let { viewModelScope.launch(Dispatchers.IO) { SosServer.logout(it) } }
         stopBeacon()
         FallMonitoringService.stop(getApplication())
         loggedIn = false
         page = WorkSafePage.LOGIN
+    }
+
+    fun connectSos(rawServer: String, rawId: String, password: String) {
+        if (!loggedIn || sosConnecting || SosStore.state.value.active) return
+        val server = try { SosServer.normalize(rawServer) } catch (e: IllegalArgumentException) {
+            sosConnectionMessage = e.message; return
+        }
+        val worker = rawId.trim().toLongOrNull()
+        if (worker == null || worker <= 0 || password.isBlank()) {
+            sosConnectionMessage = "작업자 ID와 비밀번호를 입력하세요."; return
+        }
+        val generation = connectionGeneration
+        sosConnecting = true
+        sosConnectionMessage = null
+        viewModelScope.launch {
+            try {
+                val connected = withContext(Dispatchers.IO) { SosServer.login(server, worker, password) }
+                // A fall or logout during login must not retarget an existing incident.
+                if (!loggedIn || generation != connectionGeneration || SosStore.state.value.active) {
+                    withContext(Dispatchers.IO) { SosServer.logout(connected) }
+                    sosConnectionMessage = "연결 도중 상태가 바뀌었습니다. SOS 대기가 끝난 후 다시 연결하세요."
+                } else {
+                    val previous = SosStore.session.value
+                    SosStore.connect(connected)
+                    preferences.edit().putString("sos_server", server).apply()
+                    sosConnectionMessage = "연결 완료 · SOS 전송 계정 ID $worker"
+                    if (previous != null) withContext(Dispatchers.IO) { SosServer.logout(previous) }
+                }
+            } catch (e: IllegalArgumentException) {
+                sosConnectionMessage = e.message ?: "서버 인증 응답을 확인하세요."
+            } catch (_: Exception) {
+                sosConnectionMessage = "서버에 연결할 수 없습니다. 주소, 네트워크와 서버 상태를 확인하세요."
+            } finally { sosConnecting = false }
+        }
+    }
+
+    fun cancelSos(incidentId: String) {
+        if (!loggedIn || !sos.active) return
+        getApplication<Application>().startService(Intent(getApplication(), FallMonitoringService::class.java)
+            .setAction(SosController.ACTION_CANCEL).putExtra(SosController.EXTRA_ID, incidentId))
+    }
+
+    fun testSos() {
+        if (!loggedIn || !sosTestAvailable || sos.active) return
+        getApplication<Application>().startService(Intent(getApplication(), FallMonitoringService::class.java)
+            .setAction(SosController.ACTION_TEST))
     }
 
     fun withdraw() {

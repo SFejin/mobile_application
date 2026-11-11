@@ -59,4 +59,5 @@ dependencies {
 
     // --- Testing ---
     testImplementation(libs.junit)
+    testImplementation("org.json:json:20240303") // Real JSON implementation for HTTP contract tests on the JVM.
 }
