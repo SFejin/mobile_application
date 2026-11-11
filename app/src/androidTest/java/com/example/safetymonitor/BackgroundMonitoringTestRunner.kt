@@ -61,6 +61,7 @@ class BackgroundMonitoringTestRunner : Instrumentation() {
                 val reading = FallMonitoringStore.state.value.motion
                 reading.acceleration != null && reading.gyroscope != null
             }
+            SosIntegrationChecks.run(this, checkNotNull(model), results)
             if (targetContext.getSystemService(NotificationManager::class.java).areNotificationsEnabled()) {
                 await("ongoing monitoring notification is present") {
                     targetContext.getSystemService(NotificationManager::class.java)

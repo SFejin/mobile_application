@@ -55,6 +55,7 @@ fun HomeScreen(
     onStopBeacon: () -> Unit,
     onResolveBeaconIssue: () -> Unit,
     modifier: Modifier = Modifier,
+    sosContent: @Composable () -> Unit = {},
     motion: MotionReading = MotionReading(),
     fallMessage: String = "센서 측정 대기 중",
     fallAlert: Boolean = false
@@ -79,13 +80,7 @@ fun HomeScreen(
                 .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            WorkSafeCard {
-                HomeInfoRow(
-                    label = "서버 연결 상태",
-                    value = "DEMO · 미연결",
-                    valueColor = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
+            sosContent()
 
             Surface(
                 modifier = Modifier.fillMaxWidth(),

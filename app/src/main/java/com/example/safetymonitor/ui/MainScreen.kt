@@ -115,6 +115,7 @@ fun MainScreen(
                         onStartReceiver = { onStartBeacon(BeaconRole.RECEIVER) },
                         onStopBeacon = viewModel::stopBeacon,
                         onResolveBeaconIssue = onResolveBeaconIssue,
+                        sosContent = { SosPanel(viewModel) },
                         onLogout = {
                             loginError = null
                             viewModel.logout()
@@ -165,6 +166,8 @@ fun MainScreen(
             }
         }
     }
+
+    SosCountdownDialog(viewModel)
 
     dialog?.let { state ->
         WorkSafeDialog(
