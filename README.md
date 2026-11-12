@@ -174,3 +174,31 @@ Watch·생체 정보 및 서버 API 연동은 검증 범위가 아닙니다.
 에뮬레이터에서 로그인, 홈 이동, 화면 잠금, Activity 작업 제거, 재진입, 로그아웃과 알림 정리를 확인하는 검증은 app/src/androidTest의 BackgroundMonitoringTestRunner에 있습니다. 앱과 androidTest APK를 설치한 뒤 다음 명령으로 실행합니다.
 
 adb shell am instrument -w com.example.safetymonitor.test/com.example.safetymonitor.BackgroundMonitoringTestRunner
+
+## 작업자 서버 API 통신 계층
+
+`network/WorkerApiClient.kt`와 `WorkerApiModels.kt`는 작업자 API 호출을 위한 독립 통신 계층입니다. 서버 계약은 `mobileProgrammingTeam/server`의 기본 프로젝트만 있는 `main`이 아니라 [master의 고정 리비전 `42f2a75190db910e6fee29082494d927a4ef9e02`](https://github.com/mobileProgrammingTeam/server/tree/42f2a75190db910e6fee29082494d927a4ef9e02)을 기준으로 합니다. 현재 데모 로그인·UI·센서와 자동 이벤트 전송에는 연결되지 않았으며 기존 `AlertSender`도 그대로입니다.
+
+| 메서드 | 경로 | 성공 | 요청 / 응답 DTO |
+|---|---|---:|---|
+| POST | `/api/worker/auth/login` | 200 | `WorkerLoginRequest` / `WorkerTokenResponse` |
+| POST | `/api/worker/auth/logout` | 204 | 없음 / 없음 |
+| POST | `/api/worker/events` | 201 | `WorkerEventRequest` / `WorkerEventInfo` |
+| PATCH | `/api/worker/me` | 200 | `WorkerProfileUpdate` / `WorkerInfo` |
+| PATCH | `/api/worker/me/password` | 204 | `WorkerPasswordChange` / 없음 |
+| DELETE | `/api/worker/me` | 204 | `WorkerPasswordConfirmation` / 없음 |
+
+호출자가 서버 루트 `baseUrl`을 제공합니다. 기본값은 HTTPS만 허용하며 로컬 개발 HTTP는 `allowInsecureHttp = true`로 명시적으로 선택해야 합니다. HTTP는 암호화되지 않으므로 실제 비밀번호나 토큰에 사용하지 마세요. 클라이언트는 무상태이며 로그인 외 보호 호출마다 호출자가 access token을 전달합니다. 토큰 저장·갱신·프로필 GET은 제공하지 않으며, 만료와 인증 실패에 대한 처리는 호출자가 담당합니다.
+
+호출 예시는 코루틴 내부에서 실제 배포 환경의 `serverRoot`, `workerId`, `password`를 호출자가 제공하는 경우입니다.
+
+```kotlin
+val api = WorkerApiClient(baseUrl = serverRoot)
+val session = api.login(WorkerLoginRequest(workerId, password))
+val updated = api.updateProfile(session.accessToken, WorkerProfileUpdate(workerName = newName))
+api.logout(session.accessToken)
+```
+
+HTTP 실패는 `WorkerApiException`의 상태 코드와 서버가 제공한 코드·메시지로 전달되며 통신 실패와 취소는 호출자에게 전파됩니다. 자동 리디렉션과 애플리케이션 수준 재시도는 없고, 본문은 UTF-8 고정 길이 스트리밍으로 전송합니다. 플랫폼의 연결 복구까지 완전히 막거나 서버가 요청을 정확히 한 번만 처리한다고 보장하지 않습니다. 타임아웃·취소 시 서버 처리 여부는 불확실할 수 있습니다.
+
+이번 API 계층은 debug 빌드와 네트워크 없는 생성자·입력 검증·민감 문자열 마스킹 초기화 확인만 수행했습니다. Android JSON 런타임, 실제 HTTP/TLS 통신, 인증·서버 오류·취소·라이프사이클 및 실제 서버 계약 일치는 검증하지 않았습니다. 이 결과는 앱의 서버 연결이나 이벤트 전송 성공을 의미하지 않습니다.
