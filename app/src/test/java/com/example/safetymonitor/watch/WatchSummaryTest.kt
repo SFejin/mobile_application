@@ -2,6 +2,7 @@ package com.example.safetymonitor.watch
 
 import org.junit.Assert.*
 import org.junit.Test
+import com.example.workersafety.link.WatchLinkProtocol.Result
 
 class WatchSummaryTest {
     private val now = 2_000_000L
@@ -73,5 +74,15 @@ class WatchSummaryTest {
         assertFalse(window.accept("watch-a", sample().copy(timestamp = now + 300_000)))
         assertNull(window.latest)
         assertTrue(window.accept("watch-a", sample().copy(windowStart = now + 1, timestamp = now + 300_000)))
+    }
+    @Test fun receiptReplayAndAdjacentWindowsAreOrdered() {
+        val window = WatchReadingWindow(1_600_000L)
+        val first = sample()
+        assertEquals(Result.ACCEPTED, window.admit("watch-a", first, "first"))
+        assertEquals(Result.ACCEPTED, window.admit("watch-a", first, "first"))
+        assertEquals(Result.INVALID_DATA, window.admit("watch-a", first.copy(heartRate = 79.0), "first"))
+        assertEquals(Result.NEW_WINDOW_REQUIRED, window.admit("watch-a", first.copy(timestamp = now + 1), "overlap"))
+        assertEquals(Result.ACCEPTED, window.admit("watch-a", first.copy(windowStart = now, timestamp = now + 300_000), "next"))
+        assertEquals(Result.NEW_WINDOW_REQUIRED, window.admit("watch-a", first, "first"))
     }
 }

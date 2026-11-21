@@ -24,14 +24,23 @@ import androidx.compose.ui.unit.dp
 
 @Composable
 fun LoginScreen(
-    onLogin: (String, String) -> Unit,
+    onLogin: (String, String, String) -> Unit,
+    serverAddress: String,
+    busy: Boolean,
     errorMessage: String?,
-    busy: Boolean = false,
     noticeMessage: String? = null,
     modifier: Modifier = Modifier
 ) {
+    var server by remember { mutableStateOf(serverAddress) }
     var workerId by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
+    val submit = {
+        if (!busy) {
+            val submitted = password
+            password = ""
+            onLogin(server, workerId, submitted)
+        }
+    }
 
     Column(
         modifier = modifier.fillMaxWidth().verticalScroll(rememberScrollState()),
@@ -43,6 +52,22 @@ fun LoginScreen(
                 "관리자가 발급한 작업자 ID와 비밀번호로 로그인",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+
+        WorkSafeField(
+            label = "서버 주소",
+            value = server,
+            onValueChange = { server = it },
+            keyboardType = KeyboardType.Uri,
+            outlined = true,
+            enabled = !busy
+        )
+        if (server.trim().startsWith("http://", ignoreCase = true)) {
+            Text(
+                "HTTP 연결은 암호화되지 않아 비밀번호가 노출될 수 있습니다.",
+                color = MaterialTheme.colorScheme.error,
+                style = MaterialTheme.typography.bodySmall
             )
         }
 
@@ -63,24 +88,26 @@ fun LoginScreen(
             placeholder = "비밀번호 입력",
             password = true,
             imeAction = ImeAction.Done,
-            onDone = { if (!busy) { onLogin(workerId, password); password = "" } },
+            onDone = submit,
             outlined = true,
             enabled = !busy
         )
 
-        if (noticeMessage != null) {
-            Text(noticeMessage, color = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
+        noticeMessage?.let {
+            Text(
+                it,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite }
+            )
         }
-
-        if (errorMessage != null) {
+        errorMessage?.let {
             Surface(
                 modifier = Modifier.fillMaxWidth(),
                 color = MaterialTheme.colorScheme.errorContainer,
                 shape = MaterialTheme.shapes.small
             ) {
                 Text(
-                    text = errorMessage,
+                    text = it,
                     modifier = Modifier.padding(12.dp).semantics {
                         liveRegion = LiveRegionMode.Polite
                     },
@@ -93,7 +120,7 @@ fun LoginScreen(
         WorkSafeButton(
             text = if (busy) "로그인 중…" else "로그인",
             enabled = !busy,
-            onClick = { onLogin(workerId, password); password = "" },
+            onClick = submit,
             modifier = Modifier.fillMaxWidth(),
             emphasized = true
         )

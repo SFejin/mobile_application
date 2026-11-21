@@ -12,18 +12,27 @@ import com.example.safetymonitor.detection.fall.FallMonitoringService
 import com.example.safetymonitor.detection.fall.FallMonitoringStore
 import com.example.safetymonitor.ui.WorkSafePage
 import com.example.safetymonitor.ui.WorkSafeViewModel
+import kotlinx.coroutines.runBlocking
 
 /** Device integration checks, without an additional test-library dependency. */
 class BackgroundMonitoringTestRunner : Instrumentation() {
+    private var checks: String? = null
+    private var cleanupIncident: String? = null
     override fun onCreate(arguments: Bundle?) {
         super.onCreate(arguments)
+        checks = arguments?.getString("checks")
+        cleanupIncident = arguments?.getString("cleanupIncident")
         start()
     }
 
     override fun onStart() {
         val results = StringBuilder()
+        var resultCode = Activity.RESULT_OK
         var activity: Activity? = null
         var model: WorkSafeViewModel? = null
+        val prefs = targetContext.getSharedPreferences("worksafe_theme", 0)
+        val originalServer = prefs.getString("sos_server", null)
+        var originalIncident: com.example.safetymonitor.sos.SosState? = null
         fun await(label: String, condition: () -> Boolean) {
             val deadline = System.currentTimeMillis() + 8_000L
             while (!condition()) {
@@ -50,24 +59,32 @@ class BackgroundMonitoringTestRunner : Instrumentation() {
         fun serviceExists(): Boolean = targetContext.getSystemService(ActivityManager::class.java)
             .getRunningServices(Int.MAX_VALUE).any { it.service.className == FallMonitoringService::class.java.name }
         try {
+            if (checks == "accounts" || checks == "monitoring-auth" || checks == "watch-link") {
+                when (checks) {
+                    "accounts" -> AccountIntegrationChecks.run(this, results)
+                    "monitoring-auth" -> MonitoringAuthChecks.run(this, results)
+                    "watch-link" -> WatchLinkChecks.run(this, results)
+                }
+                return
+            }
             shell("input keyevent 224")
             shell("wm dismiss-keyguard")
-            runOnMainSync {
-                FallMonitoringService.stop(targetContext)
-                com.example.safetymonitor.sos.SosStore.connect(null)
-            }
-            await("cleanup leaves no running service") { !serviceExists() }
-            runOnMainSync {
-                com.example.safetymonitor.sos.SosStore.connect(com.example.safetymonitor.sos.SosSession(
-                    "http://127.0.0.1:1", 77, "instrumentation-only", java.time.Instant.MAX))
-            }
             activity = openApp()
             model = getModel(activity)
+            originalIncident = com.example.safetymonitor.sos.SosStore.state.value.let {
+                if (it.test && it.incidentId == cleanupIncident) com.example.safetymonitor.sos.SosState() else it
+            }
+            runBlocking { checkNotNull(model).logout() }
+            await("logout leaves no running service") { !serviceExists() }
+            AccountIntegrationChecks.loginFixture(checkNotNull(model))
             await("authenticated session starts both real sensor streams") {
                 val reading = FallMonitoringStore.state.value.motion
                 reading.acceleration != null && reading.gyroscope != null
             }
             SosIntegrationChecks.run(this, checkNotNull(model), results)
+            if (checks == "sos") {
+                return
+            }
             if (targetContext.getSystemService(NotificationManager::class.java).areNotificationsEnabled()) {
                 await("ongoing monitoring notification is present") {
                     targetContext.getSystemService(NotificationManager::class.java)
@@ -100,7 +117,7 @@ class BackgroundMonitoringTestRunner : Instrumentation() {
             await("reopened screen retains the logged-in session and live readings") {
                 model.page == WorkSafePage.HOME && model.motionReading.acceleration != null
             }
-            runOnMainSync { model.logout() }
+            runBlocking { model.logout() }
             await("logout stops service and clears sensor readings") {
                 !serviceExists() && !FallMonitoringStore.state.value.motion.monitoring &&
                     FallMonitoringStore.state.value.motion.acceleration == null
@@ -111,12 +128,17 @@ class BackgroundMonitoringTestRunner : Instrumentation() {
             }
             check(!FallMonitoringService.isEnabled(targetContext))
             results.appendLine("PASS: logout disables sticky restart")
-            finish(Activity.RESULT_OK, Bundle().apply { putString("stream", results.toString()) })
         } catch (error: Throwable) {
             results.appendLine(error.stackTraceToString())
-            finish(Activity.RESULT_CANCELED, Bundle().apply { putString("stream", results.toString()) })
+            resultCode = Activity.RESULT_CANCELED
         } finally {
-            runOnMainSync { model?.logout(); activity?.finish() }
+            originalIncident?.let { state ->
+                runOnMainSync { com.example.safetymonitor.sos.SosStore.publish(targetContext, state) }
+            }
+            runBlocking { model?.logout() }
+            runOnMainSync { activity?.finish() }
+            prefs.edit().apply { if (originalServer == null) remove("sos_server") else putString("sos_server", originalServer) }.commit()
+            finish(resultCode, Bundle().apply { putString("stream", results.toString()) })
         }
     }
 }

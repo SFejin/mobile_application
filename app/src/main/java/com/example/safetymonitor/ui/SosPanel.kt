@@ -11,7 +11,7 @@ import com.example.safetymonitor.sos.*
 fun SosCountdownDialog(model: WorkSafeViewModel) {
     val state = model.sos
     var dismissed by rememberSaveable { mutableStateOf("") }
-    val session by SosStore.session.collectAsState()
+    val session = model.sosSession
     val sessionId = session?.workerId
     if (state.workerId != sessionId || sessionId == null) return
     // A real account with ID 1024 may have a prior server result; do not present it as a dev result.

@@ -1,5 +1,7 @@
 package com.example.safetymonitor.watch
 
+import com.example.workersafety.link.WatchLinkProtocol.Result
+
 /** The watch sends interval averages for HR, but the LAST valid temperature. */
 data class WatchSummary(
     val windowStart: Long,
@@ -23,7 +25,10 @@ data class WatchSummary(
             fun int(key: String) = values[key] as Int
             fun bool(key: String) = values[key] as Boolean
             fun measurement(flag: String, key: String, range: ClosedFloatingPointRange<Double>): Double? {
-                if (!bool(flag)) return null
+                if (!bool(flag)) {
+                    require(!values.containsKey(key))
+                    return null
+                }
                 val value = values[key] as Double
                 require(value.isFinite() && value in range)
                 return value
@@ -32,8 +37,8 @@ data class WatchSummary(
                 measurement("has_hr", "hr_avg", 35.0..230.0),
                 measurement("has_skin", "skin_c", 10.0..50.0),
                 measurement("has_ambient", "ambient_c", -30.0..70.0), int("hr_count"), int("skin_count"))
-            require(result.windowStart > 0 && result.timestamp >= result.windowStart)
-            require(result.timestamp <= now + 60_000L)
+            require(result.windowStart > 0 && result.timestamp > result.windowStart)
+            require(result.timestamp - 60_000L <= now)
             require(result.intervalMinutes == 5 || result.intervalMinutes == 10)
             require(result.heartCount >= 0 && result.skinCount >= 0)
             require((result.heartRate != null) == (result.heartCount > 0))
@@ -51,12 +56,28 @@ class WatchReadingWindow(val signedInAt: Long) {
     var latest: WatchSummary? = null
         private set
 
-    fun accept(node: String, summary: WatchSummary): Boolean {
-        if (node.isBlank() || summary.windowStart < signedInAt) return false
-        if (source != null && source != node) return false
-        if (summary.timestamp <= (latest?.timestamp ?: 0L)) return false
+    private var latestId: String? = null
+    private val usedIds = HashSet<String>()
+
+    fun accept(node: String, summary: WatchSummary): Boolean =
+        admit(node, summary, id = null) == Result.ACCEPTED
+
+    internal fun admit(node: String, summary: WatchSummary, id: String?): Result {
+        if (node.isBlank() || summary.windowStart <= 0 || summary.timestamp <= summary.windowStart) {
+            return Result.INVALID_DATA
+        }
+        if (source != null && source != node) return Result.WATCH_MISMATCH
+        if (id != null && id == latestId) {
+            return if (summary == latest) Result.ACCEPTED else Result.INVALID_DATA
+        }
+        if (summary.windowStart < signedInAt || summary.windowStart < (latest?.timestamp ?: 0L)) {
+            return Result.NEW_WINDOW_REQUIRED
+        }
+        if (id != null && id in usedIds) return Result.INVALID_DATA
         source = node
         latest = summary
-        return true
+        latestId = id
+        if (id != null) usedIds.add(id)
+        return Result.ACCEPTED
     }
 }

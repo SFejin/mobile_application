@@ -5,12 +5,10 @@ enum class WorkSafePage {
 }
 
 data class WorkerProfile(
-    val workerId: String = "1024",
-    val name: String = "홍길동",
-    val gender: String = "남",
-    val age: Int = 29,
-    val jobTitle: String = "사원",
-    val department: String = "생산1팀"
+    val workerId: String = "",
+    val name: String = "",
+    val gender: String = "",
+    val age: Int? = null
 )
 
 enum class WorkSafeDialogKind { CONFIRM_WITHDRAWAL, SUCCESS, FAILURE }

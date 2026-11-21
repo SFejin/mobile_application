@@ -21,7 +21,7 @@ data class WorkerTokenResponse(val accessToken: String, val tokenType: String, v
         internal fun fromJson(json: JSONObject): WorkerTokenResponse {
             val token = json.requiredString("accessToken")
             val type = json.requiredString("tokenType")
-            require(token.isNotBlank()) { "accessToken must not be blank" }
+            require(token.length in 1..256 && token.all { it.code in 33..126 }) { "Invalid access token" }
             require(type == "Bearer") { "unexpected tokenType" }
             return WorkerTokenResponse(token, type, json.requiredInstant("expiresAt"))
         }

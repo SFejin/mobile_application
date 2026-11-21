@@ -15,7 +15,7 @@ import java.time.Instant
 class SosServerTest {
     @Test fun developmentCredentialsBypassBackendOnlyInDebug() {
         server(200, """{"tokenType":"Bearer","accessToken":"real-token","expiresAt":"2099-01-01T00:00:00Z"}""") { url, requests ->
-            val result = SosServer.login(url, 1024, "0000")
+            val result = runBlocking { loginWorkerSession(url, 1024, "0000") }
             assertEquals(com.example.safetymonitor.BuildConfig.DEBUG, result.isDevelopment)
             assertTrue(result.valid())
             if (com.example.safetymonitor.BuildConfig.DEBUG) {
@@ -23,7 +23,6 @@ class SosServerTest {
                 assertEquals("", result.server)
                 assertEquals("", result.token)
                 assertEquals(SosPhase.TEST_DONE, SosServer.send(result, incident).first)
-                SosServer.logout(result)
                 assertTrue(requests.isEmpty())
                 result.invalidate()
                 assertFalse(result.valid())
@@ -38,7 +37,7 @@ class SosServerTest {
     @Test fun nearMissDevelopmentCredentialsStillRequireServerAuthentication() {
         for ((id, password) in listOf(1024L to "wrong", 1025L to "0000", 1024L to "0000 ")) {
             server(401, "{}") { url, requests ->
-                assertThrows(IllegalArgumentException::class.java) { SosServer.login(url, id, password) }
+                assertThrows(WorkerApiException::class.java) { runBlocking { loginWorkerSession(url, id, password) } }
                 assertEquals(1, requests.size)
             }
         }
@@ -85,7 +84,7 @@ class SosServerTest {
 
     @Test fun loginUsesWorkerApiAndReturnsTokenSession() {
         server(200, """{"tokenType":"Bearer","accessToken":"test-token","expiresAt":"2099-01-01T00:00:00Z"}""") { url, requests ->
-            val session = SosServer.login(url, 77, "test-password")
+            val session = runBlocking { loginWorkerSession(url, 77, "test-password") }
             assertEquals(77L, session.workerId)
             assertTrue(session.valid())
             assertEquals("/api/worker/auth/login", requests.single().first)
@@ -98,18 +97,28 @@ class SosServerTest {
 
     @Test fun invalidCredentialsCannotCreateSession() {
         for (code in listOf(401, 403, 500)) server(code, "{}") { url, requests ->
-            assertThrows(IllegalArgumentException::class.java) { SosServer.login(url, 77, "wrong") }
+            assertThrows(WorkerApiException::class.java) { runBlocking { loginWorkerSession(url, 77, "wrong") } }
             assertEquals(1, requests.size)
             assertNull(requests.single().second)
         }
     }
+    @Test fun noContentLoginCannotCreateSession() {
+        server(204, "") { url, requests ->
+            val error = assertThrows(WorkerApiException::class.java) {
+                runBlocking { loginWorkerSession(url, 77, "password") }
+            }
+            assertEquals(204, error.httpStatus)
+            assertEquals(1, requests.size)
+        }
+    }
+
 
     @Test fun expiredOrEmptyLoginTokenCannotCreateSession() {
-        for (response in listOf(
-            """{"tokenType":"Bearer","accessToken":"test","expiresAt":"2000-01-01T00:00:00Z"}""",
-            """{"tokenType":"Bearer","accessToken":"","expiresAt":"2099-01-01T00:00:00Z"}"""
-        )) server(200, response) { url, _ ->
-            assertThrows(IllegalArgumentException::class.java) { SosServer.login(url, 77, "password") }
+        server(200, """{"tokenType":"Bearer","accessToken":"test","expiresAt":"2000-01-01T00:00:00Z"}""") { url, _ ->
+            assertThrows(IllegalArgumentException::class.java) { runBlocking { loginWorkerSession(url, 77, "password") } }
+        }
+        server(200, """{"tokenType":"Bearer","accessToken":"","expiresAt":"2099-01-01T00:00:00Z"}""") { url, _ ->
+            assertThrows(java.io.IOException::class.java) { runBlocking { loginWorkerSession(url, 77, "password") } }
         }
     }
 
@@ -123,29 +132,28 @@ class SosServerTest {
             JSONObject().put("accessToken", "bad\r\ntoken").put("tokenType", "Bearer")
                 .put("expiresAt", "2099-01-01T00:00:00Z").toString()
         )) server(200, response) { url, _ ->
-            val error = assertThrows(IllegalArgumentException::class.java) {
-                SosServer.login(url, 77, "password")
+            assertThrows(java.io.IOException::class.java) {
+                runBlocking { loginWorkerSession(url, 77, "password") }
             }
-            assertTrue(error.message!!.contains("서버 인증 응답"))
         }
     }
 
     @Test fun invalidInputDoesNotReachServer() {
         server(200, "{}") { url, requests ->
             for (id in listOf(0L, -1L)) {
-                assertThrows(IllegalArgumentException::class.java) { SosServer.login(url, id, "password") }
+                assertThrows(IllegalArgumentException::class.java) { runBlocking { loginWorkerSession(url, id, "password") } }
             }
-            assertThrows(IllegalArgumentException::class.java) { SosServer.login(url, 77, " ") }
+            assertThrows(IllegalArgumentException::class.java) { runBlocking { loginWorkerSession(url, 77, " ") } }
             assertTrue(requests.isEmpty())
         }
     }
 
     @Test fun rateLimitAndServerFailureHaveActionableMessages() {
         for (code in listOf(429, 503)) server(code, "{}") { url, _ ->
-            val error = assertThrows(IllegalArgumentException::class.java) {
-                SosServer.login(url, 77, "password")
+            val error = assertThrows(WorkerApiException::class.java) {
+                runBlocking { loginWorkerSession(url, 77, "password") }
             }
-            assertTrue(error.message!!.contains("잠시 후"))
+            assertEquals(code, error.httpStatus)
         }
     }
 
@@ -207,7 +215,7 @@ class SosServerTest {
 
     @Test fun logoutUsesSameAuthenticatedWorkerToken() {
         server(204, "") { url, requests ->
-            SosServer.logout(session(url))
+            runBlocking { WorkerApiClient(url, true).logout("test-token") }
             assertEquals("/api/worker/auth/logout", requests.single().first)
             assertEquals("Bearer test-token", requests.single().second)
         }

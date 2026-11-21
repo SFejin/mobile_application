@@ -7,6 +7,9 @@ import org.json.JSONObject
 import java.net.ServerSocket
 import java.time.Instant
 import kotlin.concurrent.thread
+import kotlinx.coroutines.runBlocking
+import com.example.safetymonitor.network.WorkerApiClient
+import com.example.safetymonitor.network.WorkerLoginRequest
 
 /** Uses loopback only; never creates events on the team's deployed server. */
 object SosIntegrationChecks {
@@ -18,8 +21,9 @@ object SosIntegrationChecks {
         }
 
         var testSession: SosSession? = null
-        mockResponse(200, """{"accessToken":"test-token","expiresAt":"2099-01-01T00:00:00Z"}""") { url, request ->
-            testSession = SosServer.login(url, 77, "local-test-password")
+        mockResponse(200, """{"accessToken":"test-token","tokenType":"Bearer","expiresAt":"2099-01-01T00:00:00Z"}""") { url, request ->
+            val token = runBlocking { WorkerApiClient(url, true).login(WorkerLoginRequest(77, "local-test-password")) }
+            testSession = SosSession(url, 77, token.accessToken, token.expiresAt)
             request.join()
             check(request.firstLine == "POST /api/worker/auth/login HTTP/1.1")
             check(JSONObject(request.body).getLong("workerId") == 77L)
@@ -60,24 +64,17 @@ object SosIntegrationChecks {
         check(SosServer.send(SosSession("http://127.0.0.1:1", 77, "expired", Instant.EPOCH), incident).first == SosPhase.FAILED)
         results.appendLine("PASS: 401, 500, mismatched worker, lost response, expired token")
 
-        instrumentation.runOnMainSync {
-            instrumentation.targetContext.startService(android.content.Intent(instrumentation.targetContext,
-                com.example.safetymonitor.detection.fall.FallMonitoringService::class.java)
-                .setAction(SosController.ACTION_TEST))
-        }
+        instrumentation.runOnMainSync { model.testSos() }
         waitFor("real service starts a 20-second local-only countdown") {
             SosStore.state.value.phase == SosPhase.COUNTDOWN && SosStore.state.value.test
         }
         waitFor("local test countdown completes without transmission", 25_000) {
             SosStore.state.value.phase == SosPhase.TEST_DONE
         }
-        // Respect the same cooldown as a real incident; never authenticate against production.
-        Thread.sleep(30_100)
-        instrumentation.runOnMainSync {
-            instrumentation.targetContext.startService(android.content.Intent(instrumentation.targetContext,
-                com.example.safetymonitor.detection.fall.FallMonitoringService::class.java)
-                .setAction(SosController.ACTION_TEST))
-        }
+        runBlocking { model.logout() }
+        AccountIntegrationChecks.loginFixture(model)
+        Thread.sleep(500)
+        instrumentation.runOnMainSync { model.testSos() }
         waitFor("second countdown starts") { SosStore.state.value.phase == SosPhase.COUNTDOWN }
         val id = SosStore.state.value.incidentId
         instrumentation.runOnMainSync { model.cancelSos(id) }

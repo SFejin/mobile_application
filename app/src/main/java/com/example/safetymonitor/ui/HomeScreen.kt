@@ -60,7 +60,8 @@ fun HomeScreen(
     watch: com.example.safetymonitor.watch.WatchSnapshot = com.example.safetymonitor.watch.WatchSnapshot(),
     watchNow: Long = System.currentTimeMillis(),
     onRefreshWatch: () -> Unit = {},
-    fallAlert: Boolean = false
+    fallAlert: Boolean = false,
+    accountBusy: Boolean = false
 ) {
     val detectionReady = motion.monitoring && motion.accelerometerActive &&
         motion.gyroscopeActive && motion.acceleration != null && motion.gyroscope != null
@@ -499,11 +500,11 @@ fun HomeScreen(
             WorkSafeCard(muted = true) {
                 Text("개인 / 작업자 정보", style = MaterialTheme.typography.titleMedium)
                 Text(
-                    "이름  ${profile.name.ifBlank { "—" }}   성별  ${profile.gender.ifBlank { "—" }}   나이  ${profile.age.takeIf { it > 0 }?.toString() ?: "—"}",
+                    "이름  ${profile.name.ifBlank { "—" }}   성별  ${profile.gender.ifBlank { "—" }}   나이  ${profile.age?.toString() ?: "—"}",
                     style = MaterialTheme.typography.bodySmall
                 )
                 Text(
-                    "직급  ${profile.jobTitle.ifBlank { "—" }}   소속  ${profile.department.ifBlank { "—" }}   ID  ${profile.workerId}",
+                    "작업자 ID  ${profile.workerId.ifBlank { "—" }}",
                     style = MaterialTheme.typography.bodySmall
                 )
             }
@@ -511,10 +512,11 @@ fun HomeScreen(
 
         Spacer(Modifier.height(16.dp))
         WorkSafeButton(
-            text = "로그아웃",
+            text = if (accountBusy) "로그아웃 중…" else "로그아웃",
             onClick = onLogout,
             modifier = Modifier.fillMaxWidth(),
-            secondary = true
+            secondary = true,
+            enabled = !accountBusy
         )
     }
 }
