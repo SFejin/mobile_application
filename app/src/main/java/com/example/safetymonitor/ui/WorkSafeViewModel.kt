@@ -55,8 +55,8 @@ class WorkSafeViewModel(application: Application) : AndroidViewModel(application
         private set
     var accountBusy by mutableStateOf(false)
         private set
-    val serverAddress: String
-        get() = preferences.getString("sos_server", null) ?: SosServer.DEFAULT_SERVER
+    var serverAddress by mutableStateOf(SosServer.configuredAddress(preferences.getString("sos_server", null)))
+        private set
     var sessionNotice by mutableStateOf<String?>(null)
         private set
     var sosSession by mutableStateOf(SosStore.session.value)
@@ -89,6 +89,14 @@ class WorkSafeViewModel(application: Application) : AndroidViewModel(application
     var pendingBeaconRole: BeaconRole? = null
         private set
     private var resumeBeaconAfterSettings = false
+    var profileLoaded by mutableStateOf(false)
+        private set
+    var profileLoading by mutableStateOf(false)
+        private set
+    var profileError by mutableStateOf<String?>(null)
+        private set
+    var profileRevision by androidx.compose.runtime.mutableIntStateOf(0)
+        private set
 
     init {
         SosStore.initialize(application)
@@ -135,6 +143,7 @@ class WorkSafeViewModel(application: Application) : AndroidViewModel(application
         val session = authenticatedSession() ?: return
         if (accountBusy) return
         refreshWatch()
+        if (!profileLoaded && !session.isDevelopment) viewModelScope.launch { refreshProfile() }
         if (!FallMonitoringStore.state.value.motion.monitoring && monitoringStart?.isActive != true) {
             monitoringStart = viewModelScope.launch {
                 val started = FallMonitoringService.start(getApplication())
@@ -162,6 +171,19 @@ class WorkSafeViewModel(application: Application) : AndroidViewModel(application
 
     var darkTheme by mutableStateOf(preferences.getBoolean("dark_theme", false))
         private set
+
+    fun saveServerAddress(raw: String): String? {
+        if (accountBusy || page != WorkSafePage.LOGIN || SosStore.session.value != null || SosStore.state.value.active) {
+            return "로그아웃한 상태에서 서버 주소를 변경해주세요."
+        }
+        val address = try { SosServer.normalize(raw) } catch (e: IllegalArgumentException) {
+            return e.message ?: "서버 주소를 확인해주세요."
+        }
+        preferences.edit().putString("sos_server", address).apply()
+        serverAddress = address
+        sessionNotice = null
+        return null
+    }
 
     private fun api(session: SosSession) =
         WorkerApiClient(session.server, allowInsecureHttp = session.server.startsWith("http://"))
@@ -228,12 +250,23 @@ class WorkSafeViewModel(application: Application) : AndroidViewModel(application
                 if (!session.valid()) return@withContext EXPIRED
                 monitoringUnavailable = !started
                 profile = WorkerProfile(workerId = id.toString())
-                if (!session.isDevelopment) preferences.edit().putString("sos_server", session.server).apply()
+                profileLoaded = false
+                profileError = null
+                profileRevision++
+                if (!session.isDevelopment) {
+                    preferences.edit().putString("sos_server", session.server).apply()
+                    serverAddress = session.server
+                }
                 sessionNotice = null
                 page = WorkSafePage.HOME
-                adopted = true
                 refreshWatch()
                 BeaconMonitoringService.startReceiver(getApplication())
+                if (!session.isDevelopment) loadProfile(session)
+                if (!caller.isActive || !viewModelScope.isActive || !isCurrent(session)) {
+                    return@withContext "로그인 도중 상태가 바뀌었습니다. 다시 로그인해주세요."
+                }
+                if (!session.valid()) return@withContext EXPIRED
+                adopted = true
                 null
             } finally {
                 if (!adopted) {
@@ -252,6 +285,9 @@ class WorkSafeViewModel(application: Application) : AndroidViewModel(application
     fun navigate(destination: WorkSafePage) {
         if (authenticatedSession() != null && !accountBusy && destination != WorkSafePage.LOGIN) {
             page = destination
+            if (destination == WorkSafePage.PERSONAL_INFO && !isDevelopment) {
+                viewModelScope.launch { refreshProfile() }
+            }
         }
     }
 
@@ -310,11 +346,52 @@ class WorkSafeViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
+    suspend fun refreshProfile(): String? = accountAction(
+        "작업자 정보를 불러오지 못했습니다. 다시 시도해주세요.",
+        { e -> "작업자 정보를 불러오지 못했습니다 (HTTP ${e.httpStatus})." }
+    ) {
+        val session = authenticatedSession() ?: return@accountAction EXPIRED
+        if (session.isDevelopment) return@accountAction null
+        loadProfile(session)
+    }
+
+    private suspend fun loadProfile(session: SosSession): String? {
+        profileLoading = true
+        profileError = null
+        try {
+            val result = api(session).getProfile(session.token)
+            if (!isCurrent(session)) return "계정이 변경되어 조회 결과를 적용하지 않았습니다."
+            if (authenticatedSession() == null) return EXPIRED
+            val loaded = try { result.toProfile(session.workerId) } catch (_: IllegalArgumentException) {
+                throw IOException("Invalid worker profile")
+            }
+            profile = loaded
+            profileLoaded = true
+            profileRevision++
+            return null
+        } catch (e: WorkerApiException) {
+            if (isCurrent(session) && e.httpStatus == 401) {
+                invalidateAccount(session, EXPIRED)
+                return EXPIRED
+            }
+            val message = "작업자 정보를 불러오지 못했습니다 (HTTP ${e.httpStatus}). 다시 불러오거나 서버 상태를 확인해주세요."
+            if (isCurrent(session)) profileError = message
+            return message
+        } catch (_: IOException) {
+            val message = "작업자 정보를 불러오지 못했습니다. 네트워크를 확인하고 다시 불러와주세요."
+            if (isCurrent(session)) profileError = message
+            return message
+        } finally {
+            profileLoading = false
+        }
+    }
+
     suspend fun updateProfile(name: String, gender: String, age: String): String? = accountAction(
-        "프로필 변경 결과를 확인하지 못했습니다. 네트워크를 확인하고 입력 내용을 다시 확인해주세요.",
+        "서버 저장 완료 여부를 확인하지 못했습니다. 서버 정보 다시 불러오기로 현재 정보를 확인해주세요.",
         { e -> "프로필 변경 결과를 확인하지 못했습니다 (HTTP ${e.httpStatus}). 입력 내용이나 서버 상태를 확인해주세요." }
     ) {
         val session = authenticatedSession() ?: return@accountAction EXPIRED
+        if (!session.isDevelopment && !profileLoaded) return@accountAction "작업자 정보를 먼저 불러와주세요."
         val workerName = name.trim().ifEmpty { null }
         if (workerName != null && workerName.length > 50) return@accountAction "이름은 50자 이하로 입력해주세요."
         val sex = when (gender.trim()) {
@@ -349,7 +426,12 @@ class WorkSafeViewModel(application: Application) : AndroidViewModel(application
             invalidateAccount(session, message)
             return@accountAction message
         }
-        profile = WorkerProfile(updated.workerId.toString(), updated.workerName, updated.sex.genderLabel(), updated.age)
+        profile = try { updated.toProfile(session.workerId) } catch (_: IllegalArgumentException) {
+            return@accountAction "서버 응답을 확인하지 못했습니다. 서버 정보 다시 불러오기로 저장 결과를 확인해주세요."
+        }
+        profileLoaded = true
+        profileError = null
+        profileRevision++
         null
     }
 
@@ -433,6 +515,9 @@ class WorkSafeViewModel(application: Application) : AndroidViewModel(application
         }
         sosSession = null
         profile = WorkerProfile()
+        profileLoaded = false
+        profileError = null
+        profileRevision++
         monitoringUnavailable = false
         page = WorkSafePage.LOGIN
     }

@@ -26,13 +26,13 @@ Galaxy Watch의 측정 요약 수신을 사용하는 개발용 Android 앱입니
 3. 홈의 **작업자 ID**를 확인합니다. 자동 SOS는 이 작업자 계정의 인증 세션을 함께 사용하므로 별도 서버 로그인이 필요하지 않습니다.
 4. 작업을 마치면 로그아웃합니다. 로컬 세션과 낙상·BLE 감시를 종료하고 서버에 토큰 폐기를 요청합니다.
 
-기본 서버 주소는 `http://34.22.75.168:8081`이며
+기본 서버 주소는 `http://34.158.208.112:8081`이며
 로그인 화면에서 변경할 수 있습니다. 실제 로그인이 완료된 서버 주소를 다음 로그인 화면에 사용합니다.
 현재 기본 주소는 HTTP입니다. 인증 정보를 암호화해 전송하려면 서버 HTTPS 설정과 앱의 서버 주소 변경이 필요합니다.
 
 작업자 ID는 양의 정수여야 합니다. 비밀번호 앞뒤 공백은 임의로 제거하지 않습니다.
 로그인 요청 중에는 입력과 버튼을 잠그고, 실패하면 오류를 표시한 뒤 다시 입력할 수 있게 합니다.
-이름은 로그인 응답에 없고 프로필 조회 GET API도 연결되어 있지 않아 서버에서 받은 이름처럼 표시하지 않습니다.
+로그인 후 `GET /api/worker/me`로 본인의 이름·성별·나이를 가져와 홈에 표시합니다. 조회 실패 시 다시 불러오기를 제공합니다.
 
 ### 인증 API와 세션
 
@@ -44,6 +44,24 @@ Galaxy Watch의 측정 요약 수신을 사용하는 개발용 Android 앱입니
 - 로그아웃 시 `POST /api/worker/auth/logout`으로 토큰 폐기를 요청합니다. 오프라인에서는 서버 토큰 폐기가 보장되지 않습니다.
 - 개인 정보 수정은 `PATCH /api/worker/me`의 응답이 현재 작업자와 일치할 때만 반영합니다. 비밀번호 변경은 `PATCH /api/worker/me/password`의 HTTP 204를 확인한 뒤 세션을 종료하며, 새 비밀번호로 다시 로그인해야 합니다.
 - SOS 처리 중에는 로그아웃·비밀번호 변경·회원 탈퇴를 시작할 수 없습니다.
+
+### 숨겨진 서버 연결 설정
+
+일반 로그인 화면에는 작업자 ID와 비밀번호만 표시합니다. 기본 연결 주소는 `http://34.158.208.112:8081`입니다.
+
+- 로그인 화면의 **작업자 로그인** 문구를 **길게 누르면** **서버 연결 설정**이 열립니다.
+- 주소를 입력하고 **저장**하면 다음 로그인부터 사용하며 앱을 다시 실행해도 유지됩니다. HTTP/HTTPS 서버 루트 주소만 허용합니다.
+- **기본 주소로 되돌리기**는 입력을 기본값으로 바꿉니다. **저장**해야 적용되며, **취소**나 바깥 터치로 닫으면 변경하지 않습니다.
+- 로그인 요청 중에는 설정을 열거나 변경할 수 없습니다. 로그인한 상태의 연결 대상은 바꾸지 않습니다. 홈 제목의 기존 비콘 설정 진입 동작은 그대로 유지됩니다.
+
+### 작업자 정보 조회·수정
+
+- 기본 서버는 `http://34.158.208.112:8081`입니다. 앱에 저장된 이전 기본 주소 `http://34.22.75.168:8081`도 새 주소로 전환하며, 별도로 지정한 다른 서버 주소는 유지합니다.
+- 로그인 성공 후와 개인 정보 변경 화면 진입 시 `GET /api/worker/me`를 같은 Bearer 토큰으로 호출합니다. 서버 조회가 실패해도 안전 모니터링은 계속하며 조회 오류와 재시도 버튼을 표시합니다.
+- 조회한 이름·성별·나이를 홈과 편집 화면에 채웁니다. 실제 계정은 정보를 불러온 후 수정할 수 있습니다. 빈 입력은 기존 브랜치 동작대로 PATCH에서 생략하며 이름은 최대 50자, 성별은 M/F/U, 나이는 0~150입니다.
+- 저장 성공 응답의 작업자 ID·활성 상태·필드 값을 검증한 뒤 화면에 반영합니다. 실패 시 저장 성공으로 표시하지 않습니다. 통신 실패로 결과가 불확실하면 서버 정보 다시 불러오기로 확인합니다.
+- 다시 불러오면 저장하지 않은 입력은 서버 정보로 바뀝니다. 다른 계정으로 바뀐 뒤 도착하는 이전 응답은 적용하지 않습니다. 401은 기존 세션 만료 처리를 따릅니다.
+- 개발 계정은 GET/PATCH를 서버로 전송하지 않고 기존 메모리 편집 동작을 유지합니다.
 
 ### 회원 탈퇴
 
@@ -146,7 +164,7 @@ export ANDROID_HOME="$HOME/Library/Android/sdk"
 - 비밀번호와 토큰은 디스크에 저장하지 않습니다. 프로세스 종료 후 다시 로그인합니다.
 - 로그아웃하면 로컬 인증과 감시 서비스를 종료하고 서버 토큰 폐기를 요청합니다.
 - 토큰 만료 또는 SOS 전송의 HTTP 401 응답을 확인하면 다시 로그인을 요구합니다.
-- 개인 정보 수정은 임시 화면 데이터이며 서버에 저장되지 않습니다.
+- 실제 작업자 정보는 서버에서 조회하고, 개인 정보 수정은 서버 저장 응답을 받은 뒤 표시합니다. 개발 모드만 메모리에 임시 반영합니다.
 - 비밀번호 재발급은 관리자에게 요청합니다. 회원 탈퇴는 앱에서 현재 비밀번호 확인 후 서버에 요청합니다.
 - 화면 테마는 SharedPreferences에 저장합니다.
 
@@ -259,29 +277,31 @@ adb shell am instrument -w com.example.safetymonitor.test/com.example.safetymoni
 
 ## 작업자 서버 API 통신 계층
 
-`network/WorkerApiClient.kt`와 `WorkerApiModels.kt`는 작업자 API 호출을 위한 독립 통신 계층입니다. 서버 계약은 `mobileProgrammingTeam/server`의 기본 프로젝트만 있는 `main`이 아니라 [master의 고정 리비전 `42f2a75190db910e6fee29082494d927a4ef9e02`](https://github.com/mobileProgrammingTeam/server/tree/42f2a75190db910e6fee29082494d927a4ef9e02)을 기준으로 합니다. 현재 로그인과 자동 SOS는 `sos/SosServer.kt`를 사용하며 회원 탈퇴는 `WorkerApiClient.deleteAccount`를 사용합니다. 기존 `AlertSender`는 해당 실행 경로에 사용하지 않습니다.
+`network/WorkerApiClient.kt`와 `WorkerApiModels.kt`는 작업자 API 호출을 위한 독립 통신 계층입니다. 서버 계약은 `mobileProgrammingTeam/server`의 기본 프로젝트만 있는 `main`이 아니라 [master의 고정 리비전 `fb77e30e3904dae198dcc59bc7dc228314f366e5`](https://github.com/mobileProgrammingTeam/server/tree/fb77e30e3904dae198dcc59bc7dc228314f366e5)을 기준으로 합니다. 현재 로그인과 자동 SOS는 `sos/SosServer.kt`를 사용하며 회원 탈퇴는 `WorkerApiClient.deleteAccount`를 사용합니다. 기존 `AlertSender`는 해당 실행 경로에 사용하지 않습니다.
 
 | 메서드 | 경로 | 성공 | 요청 / 응답 DTO |
 |---|---|---:|---|
 | POST | `/api/worker/auth/login` | 200 | `WorkerLoginRequest` / `WorkerTokenResponse` |
 | POST | `/api/worker/auth/logout` | 204 | 없음 / 없음 |
 | POST | `/api/worker/events` | 201 | `WorkerEventRequest` / `WorkerEventInfo` |
+| GET | `/api/worker/me` | 200 | 없음 / `WorkerInfo` |
 | PATCH | `/api/worker/me` | 200 | `WorkerProfileUpdate` / `WorkerInfo` |
 | PATCH | `/api/worker/me/password` | 204 | `WorkerPasswordChange` / 없음 |
 | DELETE | `/api/worker/me` | 204 | `WorkerPasswordConfirmation` / 없음 |
 
-호출자가 서버 루트 `baseUrl`을 제공합니다. 기본값은 HTTPS만 허용하며 로컬 개발 HTTP는 `allowInsecureHttp = true`로 명시적으로 선택해야 합니다. HTTP는 암호화되지 않으므로 실제 비밀번호나 토큰에 사용하지 마세요. 클라이언트는 무상태이며 로그인 외 보호 호출마다 호출자가 access token을 전달합니다. 토큰 저장·갱신·프로필 GET은 제공하지 않으며, 만료와 인증 실패에 대한 처리는 호출자가 담당합니다.
+호출자가 서버 루트 `baseUrl`을 제공합니다. 기본값은 HTTPS만 허용하며 로컬 개발 HTTP는 `allowInsecureHttp = true`로 명시적으로 선택해야 합니다. HTTP는 암호화되지 않으므로 실제 비밀번호나 토큰에 사용하지 마세요. 클라이언트는 무상태이며 로그인 외 보호 호출마다 호출자가 access token을 전달합니다. 토큰 저장·갱신은 제공하지 않으며, 만료와 인증 실패에 대한 처리는 호출자가 담당합니다.
 
 호출 예시는 코루틴 내부에서 실제 배포 환경의 `serverRoot`, `workerId`, `password`를 호출자가 제공하는 경우입니다.
 
 ```kotlin
 val api = WorkerApiClient(baseUrl = serverRoot)
 val session = api.login(WorkerLoginRequest(workerId, password))
+val profile = api.getProfile(session.accessToken)
 val updated = api.updateProfile(session.accessToken, WorkerProfileUpdate(workerName = newName))
 api.logout(session.accessToken)
 ```
 
-HTTP 실패는 `WorkerApiException`의 상태 코드와 서버가 제공한 코드·메시지로 전달되며 통신 실패와 취소는 호출자에게 전파됩니다. 자동 리디렉션과 애플리케이션 수준 재시도는 없고, 본문은 UTF-8 고정 길이 스트리밍으로 전송합니다. 플랫폼의 연결 복구까지 완전히 막거나 서버가 요청을 정확히 한 번만 처리한다고 보장하지 않습니다. 타임아웃·취소 시 서버 처리 여부는 불확실할 수 있습니다.
+HTTP 실패는 `WorkerApiException`의 상태 코드와 서버가 제공한 코드·메시지로 전달되며 통신 실패와 취소는 호출자에게 전파됩니다. OkHttp를 사용하며 자동 리디렉션과 연결 실패 자동 재시도를 끕니다. 본문은 UTF-8로 전송합니다. 서버가 요청을 정확히 한 번만 처리한다고 보장하지 않습니다. 타임아웃·취소 시 서버 처리 여부는 불확실할 수 있습니다.
 
 이번 API 계층은 debug 빌드와 네트워크 없는 생성자·입력 검증·민감 문자열 마스킹 초기화 확인만 수행했습니다. Android JSON 런타임, 실제 HTTP/TLS 통신, 인증·서버 오류·취소·라이프사이클 및 실제 서버 계약 일치는 검증하지 않았습니다. 이 결과는 앱의 서버 연결이나 이벤트 전송 성공을 의미하지 않습니다.
 

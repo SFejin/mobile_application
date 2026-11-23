@@ -198,7 +198,7 @@ fun WorkSafeHeader(
                     if (onTitleTap != null) {
                         Modifier.clickable(
                             role = Role.Button,
-                            onClickLabel = "비콘 설정 열기",
+                            onClickLabel = "제목 누르기",
                             onClick = onTitleTap
                         )
                     } else Modifier

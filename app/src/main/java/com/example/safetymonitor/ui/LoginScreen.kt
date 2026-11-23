@@ -1,5 +1,7 @@
 package com.example.safetymonitor.ui
 
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -22,23 +24,23 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun LoginScreen(
-    onLogin: (String, String, String) -> Unit,
-    serverAddress: String,
+    onLogin: (String, String) -> Unit,
     busy: Boolean,
+    onServerSettings: () -> Unit,
     errorMessage: String?,
     noticeMessage: String? = null,
     modifier: Modifier = Modifier
 ) {
-    var server by remember { mutableStateOf(serverAddress) }
     var workerId by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     val submit = {
         if (!busy) {
             val submitted = password
             password = ""
-            onLogin(server, workerId, submitted)
+            onLogin(workerId, submitted)
         }
     }
 
@@ -47,27 +49,17 @@ fun LoginScreen(
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         WorkSafeCard {
-            Text("작업자 로그인", style = MaterialTheme.typography.titleLarge)
+            Text("작업자 로그인", style = MaterialTheme.typography.titleLarge,
+                modifier = Modifier.fillMaxWidth().combinedClickable(
+                    enabled = !busy,
+                    onClick = {},
+                    onLongClickLabel = "서버 연결 설정",
+                    onLongClick = onServerSettings
+                ).padding(vertical = 8.dp))
             Text(
                 "관리자가 발급한 작업자 ID와 비밀번호로 로그인",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        }
-
-        WorkSafeField(
-            label = "서버 주소",
-            value = server,
-            onValueChange = { server = it },
-            keyboardType = KeyboardType.Uri,
-            outlined = true,
-            enabled = !busy
-        )
-        if (server.trim().startsWith("http://", ignoreCase = true)) {
-            Text(
-                "HTTP 연결은 암호화되지 않아 비밀번호가 노출될 수 있습니다.",
-                color = MaterialTheme.colorScheme.error,
-                style = MaterialTheme.typography.bodySmall
             )
         }
 

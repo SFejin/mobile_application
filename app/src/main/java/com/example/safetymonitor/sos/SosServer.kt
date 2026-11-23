@@ -42,7 +42,10 @@ internal suspend fun loginWorkerSession(server: String, workerId: Long, password
 }
 
 object SosServer {
-    const val DEFAULT_SERVER = "http://34.22.75.168:8081"
+    const val DEFAULT_SERVER = "http://34.158.208.112:8081"
+    fun configuredAddress(saved: String?): String =
+        if (saved.isNullOrBlank() || saved.trim().trimEnd('/') == "http://34.22.75.168:8081") DEFAULT_SERVER else saved
+
     fun normalize(raw: String): String {
         val uri = try { URI(raw.trim()) } catch (_: Exception) { throw IllegalArgumentException("서버 주소를 확인하세요.") }
         require((uri.scheme == "http" || uri.scheme == "https") && !uri.host.isNullOrBlank() &&

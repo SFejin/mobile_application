@@ -38,8 +38,25 @@ fun MainScreen(
     val scope = rememberCoroutineScope()
     val page = viewModel.page
     val profile = viewModel.profile
+    var serverSettingsOpen by remember(page) { mutableStateOf(false) }
     var secretTapCount by remember(page) { mutableIntStateOf(0) }
     var secretTapStartedAt by remember(page) { mutableLongStateOf(0L) }
+
+    if (serverSettingsOpen && page == WorkSafePage.LOGIN && !viewModel.accountBusy) {
+        ServerAddressDialog(
+            currentAddress = viewModel.serverAddress,
+            onDismiss = { serverSettingsOpen = false },
+            onSave = { address ->
+                viewModel.saveServerAddress(address).also { error ->
+                    if (error == null) {
+                        serverSettingsOpen = false
+                        actionError = null
+                        dialog = null
+                    }
+                }
+            }
+        )
+    }
 
     BackHandler(enabled = viewModel.accountBusy) { }
     BackHandler(enabled = page != WorkSafePage.LOGIN && page != WorkSafePage.HOME && !viewModel.accountBusy) {
@@ -115,19 +132,29 @@ fun MainScreen(
                 }
                 Spacer(Modifier.height(12.dp))
             }
+            if (page == WorkSafePage.HOME && !viewModel.isDevelopment &&
+                (viewModel.profileLoading || viewModel.profileError != null)) {
+                WorkSafeCard {
+                    androidx.compose.material3.Text(if (viewModel.profileLoading) "작업자 정보를 불러오는 중…"
+                        else viewModel.profileError.orEmpty())
+                    if (!viewModel.profileLoading) WorkSafeButton(text = "작업자 정보 다시 불러오기",
+                        enabled = !viewModel.accountBusy, onClick = { scope.launch { viewModel.refreshProfile() } })
+                }
+                Spacer(Modifier.height(12.dp))
+            }
             Box(Modifier.weight(1f)) {
                 when (page) {
                     WorkSafePage.LOGIN -> LoginScreen(
-                        onLogin = { server, workerId, password ->
+                        onServerSettings = { serverSettingsOpen = true },
+                        onLogin = { workerId, password ->
                             if (!viewModel.accountBusy) {
                                 actionError = null
                                 dialog = null
                                 scope.launch {
-                                    actionError = viewModel.login(server, workerId, password)
+                                    actionError = viewModel.login(viewModel.serverAddress, workerId, password)
                                 }
                             }
                         },
-                        serverAddress = viewModel.serverAddress,
                         busy = viewModel.accountBusy,
                         errorMessage = actionError,
                         noticeMessage = if (actionError == null) viewModel.sessionNotice else null
@@ -178,6 +205,11 @@ fun MainScreen(
                         profile = profile,
                         busy = viewModel.accountBusy,
                         isDevelopment = viewModel.isDevelopment,
+                        loaded = viewModel.profileLoaded,
+                        loading = viewModel.profileLoading,
+                        revision = viewModel.profileRevision,
+                        errorMessage = viewModel.profileError,
+                        onReload = { scope.launch { viewModel.refreshProfile() } },
                         onSave = { name, gender, age ->
                             if (!viewModel.accountBusy) {
                                 dialog = null

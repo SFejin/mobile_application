@@ -33,11 +33,18 @@ fun PersonalInfoScreen(
     onSave: (String, String, String) -> Unit,
     busy: Boolean,
     isDevelopment: Boolean,
+    loaded: Boolean,
+    loading: Boolean,
+    revision: Int,
+    errorMessage: String?,
+    onReload: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    var name by rememberSaveable(profile.name) { mutableStateOf(profile.name) }
-    var gender by rememberSaveable(profile.gender) { mutableStateOf(profile.gender) }
-    var age by rememberSaveable(profile.age) { mutableStateOf(profile.age?.toString().orEmpty()) }
+    var name by rememberSaveable(profile.workerId, revision) { mutableStateOf(profile.name) }
+    var gender by rememberSaveable(profile.workerId, revision) { mutableStateOf(profile.gender) }
+    var age by rememberSaveable(profile.workerId, revision) { mutableStateOf(profile.age?.toString().orEmpty()) }
+
+    val editable = !busy && (isDevelopment || loaded)
 
     Column(modifier.fillMaxWidth().verticalScroll(rememberScrollState())) {
         WorkSafeCard {
@@ -50,12 +57,14 @@ fun PersonalInfoScreen(
                 },
                 style = MaterialTheme.typography.bodySmall
             )
-            WorkSafeField(label = "이름", value = name, onValueChange = { name = it }, enabled = !busy)
+            if (loading) Text("작업자 정보를 불러오는 중…")
+            errorMessage?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+            WorkSafeField(label = "이름", value = name, onValueChange = { name = it }, enabled = editable)
             WorkSafeField(
                 label = "성별 (M/F/U)",
                 value = gender,
                 onValueChange = { gender = it },
-                enabled = !busy
+                enabled = editable
             )
             WorkSafeField(
                 label = "나이",
@@ -63,15 +72,21 @@ fun PersonalInfoScreen(
                 onValueChange = { age = it },
                 keyboardType = KeyboardType.Number,
                 imeAction = ImeAction.Done,
-                onDone = { if (!busy) onSave(name, gender, age) },
-                enabled = !busy
+                onDone = { if (editable) onSave(name, gender, age) },
+                enabled = editable
             )
             WorkSafeButton(
-                text = if (busy) "저장 중…" else "변경사항 저장",
-                onClick = { if (!busy) onSave(name, gender, age) },
+                text = if (loading) "불러오는 중…" else if (busy) "저장 중…" else "변경사항 저장",
+                onClick = { if (editable) onSave(name, gender, age) },
                 modifier = Modifier.fillMaxWidth(),
-                enabled = !busy
+                enabled = editable
             )
+            if (!isDevelopment) {
+                WorkSafeButton(text = "서버 정보 다시 불러오기", onClick = onReload,
+                    enabled = !busy, secondary = true, modifier = Modifier.fillMaxWidth())
+                Text("다시 불러오면 저장하지 않은 입력은 서버 정보로 바뀝니다.",
+                    style = MaterialTheme.typography.bodySmall)
+            }
         }
     }
 }

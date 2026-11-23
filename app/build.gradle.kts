@@ -51,6 +51,7 @@ android {
 }
 
 dependencies {
+    implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("com.google.android.gms:play-services-wearable:20.0.1")
     constraints {
         implementation("androidx.fragment:fragment:1.8.3") {

@@ -268,7 +268,7 @@ class SosServerTest {
     }
 
     @Test fun invalidOrCredentialBearingServerAddressesAreRejected() {
-        assertEquals("http://34.22.75.168:8081", SosServer.normalize(" http://34.22.75.168:8081/ "))
+        assertEquals("http://34.158.208.112:8081", SosServer.normalize(" http://34.158.208.112:8081/ "))
         for (url in listOf("file:///tmp/x", "http://user:pass@host", "http://host/path", "http://host?token=a", "http://host:99999")) {
             assertThrows(IllegalArgumentException::class.java) { SosServer.normalize(url) }
         }

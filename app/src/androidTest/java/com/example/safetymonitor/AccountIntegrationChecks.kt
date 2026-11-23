@@ -21,6 +21,7 @@ import kotlin.concurrent.thread
 /** Synthetic loopback account server; never contacts the configured remote server. */
 object AccountIntegrationChecks {
     private const val token = """{"accessToken":"synthetic-token","tokenType":"Bearer","expiresAt":"2099-01-01T00:00:00Z"}"""
+    private const val profile = """{"workerId":77,"workerName":"Fixture","sex":"M","age":30,"enabled":true}"""
     private data class Response(val code: Int, val body: String = "")
     private data class Request(val line: String, val body: String, val headers: List<String>)
     private class Fixture : AutoCloseable {
@@ -60,8 +61,10 @@ object AccountIntegrationChecks {
     fun loginFixture(model: WorkSafeViewModel) {
         Fixture().use { fixture ->
             fixture.respond(200, token)
+            fixture.respond(200, profile)
             check(runBlocking { model.login(fixture.url, "77", "synthetic-password") } == null)
             check(fixture.request().line.startsWith("POST /api/worker/auth/login "))
+            check(fixture.request().line.startsWith("GET /api/worker/me "))
         }
     }
     fun run(instrumentation: Instrumentation, results: StringBuilder) {
@@ -80,10 +83,15 @@ object AccountIntegrationChecks {
             Fixture().use { f ->
                 fun login() {
                     f.respond(200, token)
+                    f.respond(200, profile)
                     check(runBlocking { m.login(f.url, "77", "synthetic-password") } == null)
                     val request = f.request()
                     check(request.line.startsWith("POST /api/worker/auth/login "))
                     check(JSONObject(request.body).getLong("workerId") == 77L)
+                    val read = f.request()
+                    check(read.line.startsWith("GET /api/worker/me "))
+                    check(read.headers.any { it.equals("Authorization: Bearer synthetic-token", true) })
+                    check(m.profileLoaded && m.profile.name == "Fixture" && m.profile.age == 30)
                     check(m.sosSession === SosStore.session.value && m.sosSession?.workerId == 77L)
                 }
                 f.respond(200, """{"accessToken":"expired-synthetic","tokenType":"Bearer","expiresAt":"1970-01-01T00:00:00Z"}""")
@@ -99,8 +107,10 @@ object AccountIntegrationChecks {
                         check(duplicate != null && f.requests.poll(300, TimeUnit.MILLISECONDS) == null)
                     } finally {
                         f.respond(200, token)
+                        f.respond(200, profile)
                     }
                     check(withTimeout(5_000) { first.await() } == null)
+                    check(f.request().line.startsWith("GET /api/worker/me "))
                     check(!m.accountBusy && m.sosSession === SosStore.session.value && m.sosSession != null)
                 }
                 f.respond(204)
@@ -123,7 +133,14 @@ object AccountIntegrationChecks {
                 check(runBlocking { m.login(f.url, "77", "incorrect") } != null)
                 f.request()
                 login()
-                check(m.profile.workerId == "77" && m.profile.name.isEmpty() && m.profile.gender.isEmpty() && m.profile.age == null)
+                check(m.profile.workerId == "77" && m.profile.name == "Fixture" && m.profile.gender == "남" && m.profile.age == 30)
+                f.respond(500, "{}")
+                check(runBlocking { m.refreshProfile() } != null)
+                check(f.request().line.startsWith("GET /api/worker/me "))
+                check(m.profile.name == "Fixture" && m.profileError != null)
+                f.respond(200, profile)
+                check(runBlocking { m.refreshProfile() } == null)
+                check(f.request().line.startsWith("GET /api/worker/me ") && m.profileError == null)
                 check(f.requests.isEmpty())
                 f.respond(200, """{"workerId":77,"workerName":"Fixture","sex":null,"age":0,"enabled":true}""")
                 check(runBlocking { m.updateProfile("", "", "0") } == null)
@@ -132,6 +149,9 @@ object AccountIntegrationChecks {
                 val body = JSONObject(patch.body)
                 check(body.getInt("age") == 0 && !body.has("workerName") && !body.has("sex"))
                 check(m.profile.age == 0)
+                f.respond(200, """{"workerId":77,"workerName":"Fixture","sex":null,"age":0,"enabled":true}""")
+                check(runBlocking { m.refreshProfile() } == null)
+                check(f.request().line.startsWith("GET /api/worker/me ") && m.profile.age == 0)
                 f.respond(401, "{}")
                 check(runBlocking { m.withdraw("wrong") } != null)
                 check(f.request().line.startsWith("DELETE /api/worker/me "))
@@ -169,8 +189,10 @@ object AccountIntegrationChecks {
                     while (!condition()) { check(System.currentTimeMillis() < deadline) { label }; Thread.sleep(50) }
                 }
                 f.respond(200, """{"accessToken":"expiring","tokenType":"Bearer","expiresAt":"${Instant.now().plusSeconds(3)}"}""")
+                f.respond(200, profile)
                 check(runBlocking { m.login(f.url, "77", "synthetic-password") } == null)
                 f.request()
+                check(f.request().line.startsWith("GET /api/worker/me "))
                 val expiring = checkNotNull(m.sosSession)
                 instrumentation.runOnMainSync {
                     SosStore.publish(app, com.example.safetymonitor.sos.SosState(phase = com.example.safetymonitor.sos.SosPhase.COUNTDOWN, incidentId = "expiry-test", workerId = 77))
@@ -213,7 +235,7 @@ object AccountIntegrationChecks {
                     check(f.requests.poll(500, TimeUnit.MILLISECONDS) == null)
                     results.appendLine("PASS: debug 1024/0000 login, local profile, blocked password/delete, SOS practice and logout sent zero worker requests")
                 }
-                results.appendLine("PASS: loopback login, shared session, partial age-zero PATCH, delete 401/lost/204, password change, logout 204/lost")
+                results.appendLine("PASS: loopback login/GET profile, reload failure/retry, shared session, partial age-zero PATCH/readback, delete 401/lost/204, password change, logout 204/lost")
             }
         } finally {
             instrumentation.runOnMainSync { SosStore.publish(app, originalIncident) }
