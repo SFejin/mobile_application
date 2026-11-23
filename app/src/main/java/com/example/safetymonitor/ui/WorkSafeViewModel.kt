@@ -98,7 +98,20 @@ class WorkSafeViewModel(application: Application) : AndroidViewModel(application
     var profileRevision by androidx.compose.runtime.mutableIntStateOf(0)
         private set
 
+    var eventConfig by mutableStateOf(com.example.safetymonitor.detection.events.EventSettings.state.value)
+        private set
+    var workerEvents by mutableStateOf(com.example.safetymonitor.detection.events.WorkerEventStore.state.value)
+        private set
+
+    fun saveEventSettings(ids: String, heart: Boolean, low: String, high: String): String? {
+        if (authenticatedSession() == null || accountBusy) return "로그인 상태를 확인해주세요."
+        return com.example.safetymonitor.detection.events.EventSettings.save(getApplication(), ids, heart, low, high)
+    }
+
     init {
+        com.example.safetymonitor.detection.events.EventSettings.initialize(application)
+        viewModelScope.launch { com.example.safetymonitor.detection.events.EventSettings.state.collect { eventConfig = it } }
+        viewModelScope.launch { com.example.safetymonitor.detection.events.WorkerEventStore.state.collect { workerEvents = it } }
         SosStore.initialize(application)
         sos = SosStore.state.value
         if (sosSession == null && !sos.active) {

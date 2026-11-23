@@ -71,6 +71,7 @@ fun MainScreen(
         WorkSafePage.THEME -> "화면 모드 변경"
         WorkSafePage.PASSWORD -> "비밀번호 변경"
         WorkSafePage.WITHDRAW -> "회원 탈퇴"
+        WorkSafePage.DETECTION_SETTINGS -> "감지 설정 · 이벤트"
     }
     val subtitle = when (page) {
         WorkSafePage.LOGIN -> "작업자 안전 모니터링"
@@ -142,6 +143,16 @@ fun MainScreen(
                 }
                 Spacer(Modifier.height(12.dp))
             }
+            if (page == WorkSafePage.HOME && viewModel.workerEvents.isNotEmpty()) {
+                val latest = viewModel.workerEvents.first()
+                WorkSafeCard {
+                    androidx.compose.material3.Text(latest.event.description, style = MaterialTheme.typography.titleSmall)
+                    androidx.compose.material3.Text(latest.status, style = MaterialTheme.typography.bodySmall)
+                    WorkSafeButton(text = "감지 이벤트 보기", enabled = !viewModel.accountBusy,
+                        onClick = { viewModel.navigate(WorkSafePage.DETECTION_SETTINGS) })
+                }
+                Spacer(Modifier.height(12.dp))
+            }
             Box(Modifier.weight(1f)) {
                 when (page) {
                     WorkSafePage.LOGIN -> LoginScreen(
@@ -200,6 +211,9 @@ fun MainScreen(
                         },
                         onResolveIssue = onResolveBeaconIssue
                     )
+                    WorkSafePage.DETECTION_SETTINGS -> DetectionSettingsScreen(
+                        config = viewModel.eventConfig, records = viewModel.workerEvents,
+                        busy = viewModel.accountBusy, onSave = viewModel::saveEventSettings)
                     WorkSafePage.THEME -> ThemeSettingsScreen(viewModel.darkTheme, viewModel::changeTheme)
                     WorkSafePage.PERSONAL_INFO -> PersonalInfoScreen(
                         profile = profile,

@@ -43,6 +43,11 @@ fun SettingsDropdown(
                 containerColor = MaterialTheme.colorScheme.surface
             ) {
                 DropdownMenuItem(
+                    text = { Text("감지 설정 · 이벤트") },
+                    onClick = { onDismiss(); onSelect(WorkSafePage.DETECTION_SETTINGS) },
+                    modifier = Modifier.heightIn(min = 48.dp)
+                )
+                DropdownMenuItem(
                     text = { Text("개인 정보 변경") },
                     onClick = { onDismiss(); onSelect(WorkSafePage.PERSONAL_INFO) },
                     modifier = Modifier.heightIn(min = 48.dp)

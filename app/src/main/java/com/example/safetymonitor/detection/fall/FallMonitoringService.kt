@@ -29,6 +29,7 @@ import kotlinx.coroutines.withTimeoutOrNull
 class FallMonitoringService : Service() {
     private lateinit var detector: FallDetector
     private lateinit var sos: SosController
+    private val workerEvents = com.example.safetymonitor.detection.events.WorkerEventMonitor()
     private var wakeLock: PowerManager.WakeLock? = null
     private var started = false
     private var monitoringSession: SosSession? = null
@@ -49,6 +50,7 @@ class FallMonitoringService : Service() {
     override fun onCreate() {
         super.onCreate()
         sos = SosController(this)
+        com.example.safetymonitor.detection.events.EventSettings.initialize(this)
         getSystemService(NotificationManager::class.java).createNotificationChannel(
             NotificationChannel(CHANNEL_ID, "안전 센서 측정", NotificationManager.IMPORTANCE_LOW)
         )
@@ -117,6 +119,7 @@ class FallMonitoringService : Service() {
             }
             monitoringSession = session
             started = true
+            workerEvents.bind(session)
             handler.removeCallbacks(checkSession)
             handler.postDelayed(checkSession, 1_000)
         }
@@ -142,6 +145,7 @@ class FallMonitoringService : Service() {
         shuttingDown = true
         handler.removeCallbacks(checkSession)
         sos.close()
+        workerEvents.close()
         releaseSensors()
         stopForeground(STOP_FOREGROUND_REMOVE)
         FallMonitoringStore.clear()
