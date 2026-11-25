@@ -3,6 +3,8 @@ package com.example.safetymonitor.detection.beacon
 object BeaconProtocol {
     const val SERVICE_UUID: String = "a8e7b100-6f4d-4a2b-9d8c-57a4c36e1201"
     const val PAYLOAD_VERSION: Int = 1
+    // Version 2 has the same 8-byte layout and denotes a danger beacon.
+    const val DANGER_PAYLOAD_VERSION: Int = 2
     const val PAYLOAD_SIZE_BYTES: Int = 8
 
     private const val MIN_ID: Int = 1
@@ -24,7 +26,7 @@ object BeaconProtocol {
             "Invalid BeaconConfig: id=${config.id}, xCm=${config.xCm}, yCm=${config.yCm}, referenceRssi=${config.referenceRssi}"
         }
         return byteArrayOf(
-            PAYLOAD_VERSION.toByte(),
+            (if (config.danger) DANGER_PAYLOAD_VERSION else PAYLOAD_VERSION).toByte(),
             (config.id and 0xFF).toByte(),
             ((config.id ushr 8) and 0xFF).toByte(),
             (config.xCm and 0xFF).toByte(),
@@ -40,7 +42,7 @@ object BeaconProtocol {
             return null
         }
         val version = data[0].toInt() and 0xFF
-        if (version != PAYLOAD_VERSION) {
+        if (version != PAYLOAD_VERSION && version != DANGER_PAYLOAD_VERSION) {
             return null
         }
 
@@ -53,7 +55,8 @@ object BeaconProtocol {
             id = id,
             xCm = xCm,
             yCm = yCm,
-            referenceRssi = referenceRssi
+            referenceRssi = referenceRssi,
+            danger = version == DANGER_PAYLOAD_VERSION
         )
         return if (isValid(config)) config else null
     }

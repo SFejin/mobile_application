@@ -341,7 +341,7 @@ fun HomeScreen(
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
                                         Text(
-                                            "비콘 #${obs.config.id}",
+                                            "비콘 #${obs.config.id} · ${if (obs.config.danger) "위험 경고" else "일반"}",
                                             style = MaterialTheme.typography.bodyMedium,
                                             fontWeight = FontWeight.Bold
                                         )

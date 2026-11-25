@@ -59,6 +59,7 @@ fun BeaconTransmitterScreen(
     var rssiText by remember(savedConfig.referenceRssi) {
         mutableStateOf(savedConfig.referenceRssi.toString())
     }
+    var danger by remember(savedConfig.danger) { mutableStateOf(savedConfig.danger) }
     var saveFeedback by remember { mutableStateOf<String?>(null) }
     var advancedExpanded by remember { mutableStateOf(false) }
 
@@ -113,7 +114,8 @@ fun BeaconTransmitterScreen(
             id = parsedId,
             xCm = xCm,
             yCm = yCm,
-            referenceRssi = parsedRssi
+            referenceRssi = parsedRssi,
+            danger = danger
         )
     }
 
@@ -123,6 +125,13 @@ fun BeaconTransmitterScreen(
             .verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
+        WorkSafeCard {
+            Text("비콘 유형: " + if (danger) "위험 경고" else "일반")
+            WorkSafeButton(text = if (danger) "일반으로 변경" else "위험 경고로 변경",
+                onClick = { danger = !danger }, enabled = !isTxActive)
+            Text("위험 비콘에 접근하면 수신 앱이 SOS를 전송합니다. 송신·수신 앱 모두 업데이트해야 합니다.")
+            activeConfig?.let { Text("현재 송신: " + if (it.danger) "위험 경고" else "일반") }
+        }
         // Current status & issue banner
         WorkSafeCard {
             Row(

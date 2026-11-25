@@ -29,7 +29,8 @@ data class BeaconConfig(
     val id: Int = 1,
     val xCm: Int = 0,
     val yCm: Int = 0,
-    val referenceRssi: Int = -59
+    val referenceRssi: Int = -59,
+    val danger: Boolean = false
 )
 
 data class BeaconObservation(

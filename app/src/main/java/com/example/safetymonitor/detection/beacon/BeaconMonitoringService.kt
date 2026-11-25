@@ -85,7 +85,8 @@ class BeaconMonitoringService : Service() {
                     id = intent.getIntExtra(EXTRA_ID, 0),
                     xCm = intent.getIntExtra(EXTRA_X_CM, 0),
                     yCm = intent.getIntExtra(EXTRA_Y_CM, 0),
-                    referenceRssi = intent.getIntExtra(EXTRA_REFERENCE_RSSI, 0)
+                    referenceRssi = intent.getIntExtra(EXTRA_REFERENCE_RSSI, 0),
+                    danger = intent.getBooleanExtra("beacon_danger", false)
                 )
                 handleStart(BeaconRole.TRANSMITTER, config, intent.getLongExtra(EXTRA_GENERATION, -1L))
             }
@@ -522,6 +523,7 @@ class BeaconMonitoringService : Service() {
                     .putExtra(EXTRA_X_CM, config.xCm)
                     .putExtra(EXTRA_Y_CM, config.yCm)
                     .putExtra(EXTRA_REFERENCE_RSSI, config.referenceRssi)
+                    .putExtra("beacon_danger", config.danger)
             }
             try {
                 app.startForegroundService(serviceIntent)

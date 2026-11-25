@@ -110,7 +110,7 @@ class BeaconProtocolTest {
         assertNull(BeaconProtocol.decode(ByteArray(7) { 0x01 }))
         assertNull(BeaconProtocol.decode(ByteArray(9) { 0x01 }))
 
-        // Wrong version (0x00 and 0x02)
+        // Wrong version (0x00 and 0x03)
         assertNull(
             BeaconProtocol.decode(
                 byteArrayOf(0x00, 0x34, 0x12, 0x00, 0x00, 0x00, 0x00, 0xC5.toByte())
@@ -118,7 +118,7 @@ class BeaconProtocolTest {
         )
         assertNull(
             BeaconProtocol.decode(
-                byteArrayOf(0x02, 0x34, 0x12, 0x00, 0x00, 0x00, 0x00, 0xC5.toByte())
+                byteArrayOf(0x03, 0x34, 0x12, 0x00, 0x00, 0x00, 0x00, 0xC5.toByte())
             )
         )
 

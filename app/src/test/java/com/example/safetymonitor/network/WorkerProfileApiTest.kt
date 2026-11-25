@@ -64,6 +64,29 @@ class WorkerProfileApiTest {
         failure.get()?.let { throw it }
     }
 
+    @Test fun vitalAndDangerEventsUseAuthenticatedEventEndpoint() {
+        val time = java.time.Instant.parse("2026-11-25T00:00:00Z")
+        for ((type, sender) in listOf(
+            WorkerEventType.ABNORMAL_VITAL to "ANDROID_HEART_RATE",
+            WorkerEventType.ABNORMAL_VITAL to "ANDROID_SKIN_TEMPERATURE",
+            WorkerEventType.DANGER_ZONE_APPROACH to "ANDROID_DANGER_BEACON_42"
+        )) {
+            val response = """{"eventId":1,"workerId":77,"workerName":"worker","time":"$time","receivedAt":"$time","eventType":"${type.name}","alertSender":"$sender"}"""
+            server(201, response) { api, captured ->
+                val result = runBlocking { api.createEvent("worker-token", WorkerEventRequest(time, type, sender)) }
+                assertEquals(type, result.eventType)
+                val request = captured.get()
+                assertEquals("POST", request.method)
+                assertEquals("/api/worker/events", request.path)
+                assertEquals("Bearer worker-token", request.authorization)
+                val json = JSONObject(request.body)
+                assertEquals(setOf("time", "eventType", "alertSender"), json.keys().asSequence().toSet())
+                assertEquals(type.name, json.getString("eventType"))
+                assertEquals(sender, json.getString("alertSender"))
+            }
+        }
+    }
+
     @Test fun getOwnProfileUsesBearerAndAcceptsNewServerFields() {
         server(200, profile) { api, request ->
             val result = runBlocking { api.getProfile("worker-token") }

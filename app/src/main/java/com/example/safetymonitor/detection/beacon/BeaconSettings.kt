@@ -18,7 +18,8 @@ object BeaconSettings {
             id = preferences.getInt(KEY_ID, defaults.id),
             xCm = preferences.getInt(KEY_X_CM, defaults.xCm),
             yCm = preferences.getInt(KEY_Y_CM, defaults.yCm),
-            referenceRssi = preferences.getInt(KEY_REFERENCE_RSSI, defaults.referenceRssi)
+            referenceRssi = preferences.getInt(KEY_REFERENCE_RSSI, defaults.referenceRssi),
+            danger = preferences.getBoolean("danger", false)
         )
         return if (BeaconProtocol.isValid(config)) config else defaults
     }
@@ -32,6 +33,7 @@ object BeaconSettings {
             .putInt(KEY_X_CM, config.xCm)
             .putInt(KEY_Y_CM, config.yCm)
             .putInt(KEY_REFERENCE_RSSI, config.referenceRssi)
+            .putBoolean("danger", config.danger)
             .apply()
     }
 }

@@ -41,6 +41,7 @@ object SosStore {
     }
 
     fun connect(value: SosSession?) {
+        if (connection.value !== value) com.example.safetymonitor.detection.events.WorkerEventStore.clear()
         com.example.safetymonitor.watch.WatchDataRepository.bind(value)
         connection.value = value
     }

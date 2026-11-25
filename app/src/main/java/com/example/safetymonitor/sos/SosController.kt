@@ -7,9 +7,8 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Intent
 import android.media.AudioAttributes
-import android.media.Ringtone
-import android.media.RingtoneManager
-import android.os.Build
+import android.media.AudioManager
+import android.media.MediaPlayer
 import android.os.SystemClock
 import android.os.VibrationEffect
 import android.os.Vibrator
@@ -24,7 +23,7 @@ class SosController(private val service: Service) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val manager = service.getSystemService(NotificationManager::class.java)
     private val vibrator = service.getSystemService(Vibrator::class.java)
-    private var ringtone: Ringtone? = null
+    private var alarmPlayer: MediaPlayer? = null
     private val machine: SosStateMachine
     private var target: SosSession? = null
     private var timer: Job? = null
@@ -116,18 +115,37 @@ class SosController(private val service: Service) {
     }
 
     private fun startAlarm() {
+        stopAlarm()
         runCatching {
-            ringtone = RingtoneManager.getRingtone(service, RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM))?.apply {
-                audioAttributes = AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_ALARM)
-                    .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION).build()
-                if (Build.VERSION.SDK_INT >= 28) isLooping = true
-                play()
+            val attributes = AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_ALARM)
+                .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION).build()
+            val player = MediaPlayer.create(service, R.raw.sos_emergency_alarm, attributes,
+                AudioManager.AUDIO_SESSION_ID_GENERATE)
+            if (player != null) {
+                alarmPlayer = player
+                player.setOnErrorListener { failed, _, _ ->
+                    if (alarmPlayer === failed) releaseAlarmPlayer()
+                    true
+                }
+                player.isLooping = true
+                player.start()
             }
-            vibrator.vibrate(VibrationEffect.createWaveform(longArrayOf(0, 500, 700), 0))
+        }.onFailure { releaseAlarmPlayer() }
+        runCatching {
+            vibrator.vibrate(VibrationEffect.createWaveform(longArrayOf(0, 230, 110, 230, 110, 440, 880), 0))
         }
     }
 
-    private fun stopAlarm() { ringtone?.stop(); ringtone = null; vibrator.cancel() }
+    private fun releaseAlarmPlayer() {
+        val player = alarmPlayer
+        alarmPlayer = null
+        runCatching { player?.release() }
+    }
+
+    private fun stopAlarm() {
+        releaseAlarmPlayer()
+        runCatching { vibrator.cancel() }
+    }
 
     fun close() {
         if (machine.state.phase == SosPhase.COUNTDOWN) cancel(machine.state.incidentId)
