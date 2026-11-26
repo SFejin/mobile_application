@@ -6,7 +6,8 @@ import java.io.IOException
 import java.time.Instant
 
 internal suspend fun deliverEvent(session: SosSession, event: DetectedEvent, at: Instant,
-    isCurrent: () -> Boolean, send: suspend (String, WorkerEventRequest) -> WorkerEventInfo): String {
+    isCurrent: () -> Boolean, onAccepted: () -> Unit = {},
+    send: suspend (String, WorkerEventRequest) -> WorkerEventInfo): String {
     if (!isCurrent() || !session.valid()) return "전송 안 됨 · 로그인 만료"
     if (session.isDevelopment) return "개발 모드 · 서버 전송 없음"
     val request = WorkerEventRequest(at, event.type, event.sender)
@@ -14,7 +15,10 @@ internal suspend fun deliverEvent(session: SosSession, event: DetectedEvent, at:
         val result = send(session.token, request)
         if (result.workerId != session.workerId || result.eventType != event.type || result.alertSender != event.sender)
             "응답 불일치 · 관리자에게 접수 확인 필요"
-        else "서버 접수 완료 · #${result.eventId}"
+        else {
+            onAccepted()
+            "서버 접수 완료 · #${result.eventId}"
+        }
     } catch (e: WorkerApiException) {
         if (e.httpStatus == 401) session.invalidate()
         if (e.httpStatus in 400..499) "전송 거절 · HTTP ${e.httpStatus}"

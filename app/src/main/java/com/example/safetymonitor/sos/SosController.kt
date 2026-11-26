@@ -23,7 +23,12 @@ class SosController(private val service: Service) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val manager = service.getSystemService(NotificationManager::class.java)
     private val vibrator = service.getSystemService(Vibrator::class.java)
+    private val alarmAttributes = AudioAttributes.Builder()
+        .setUsage(AudioAttributes.USAGE_ALARM)
+        .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+        .build()
     private var alarmPlayer: MediaPlayer? = null
+    private var pendingSafetyReceipt = false
     private val machine: SosStateMachine
     private var target: SosSession? = null
     private var timer: Job? = null
@@ -43,12 +48,13 @@ class SosController(private val service: Service) {
                 session.workerId, session.server, test || session.isDevelopment)) return
         target = session
         publish()
-        startAlarm()
+        startCountdownVibration()
         timer = scope.launch {
             while (machine.state.phase == SosPhase.COUNTDOWN) {
                 delay(200)
                 if (machine.tick(SystemClock.elapsedRealtime())) {
-                    stopAlarm()
+                    stopCountdownVibration()
+                    flushSafetyReceipt()
                     publish()
                     dispatch()
                 } else publish()
@@ -59,7 +65,8 @@ class SosController(private val service: Service) {
     fun cancel(id: String) {
         if (machine.cancel(id, SystemClock.elapsedRealtime())) {
             timer?.cancel()
-            stopAlarm()
+            stopCountdownVibration()
+            flushSafetyReceipt()
             publish()
         }
     }
@@ -76,7 +83,10 @@ class SosController(private val service: Service) {
                 } else SosServer.send(session, incident)
             }
         }
-        if (machine.finish(incident.incidentId, result.first, result.second, SystemClock.elapsedRealtime())) publish()
+        if (machine.finish(incident.incidentId, result.first, result.second, SystemClock.elapsedRealtime())) {
+            publish()
+            if (machine.state.phase == SosPhase.SENT) playReceiptSound()
+        }
     }
 
     private var lastNotification: Pair<SosPhase, Int>? = null
@@ -114,12 +124,24 @@ class SosController(private val service: Service) {
         manager.notify(NOTIFICATION_ID, notification.build())
     }
 
-    private fun startAlarm() {
-        stopAlarm()
+    @Suppress("DEPRECATION") // AudioAttributes keeps alarm vibration available on Android 8+.
+    private fun startCountdownVibration() {
+        releaseAlarmPlayer()
         runCatching {
-            val attributes = AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_ALARM)
-                .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION).build()
-            val player = MediaPlayer.create(service, R.raw.sos_emergency_alarm, attributes,
+            val timings = longArrayOf(0, 850, 250)
+            val effect = if (vibrator.hasAmplitudeControl()) {
+                VibrationEffect.createWaveform(timings, intArrayOf(0, 255, 0), 0)
+            } else {
+                VibrationEffect.createWaveform(timings, 0)
+            }
+            vibrator.vibrate(effect, alarmAttributes)
+        }
+    }
+
+    private fun playReceiptSound() {
+        releaseAlarmPlayer()
+        runCatching {
+            val player = MediaPlayer.create(service, R.raw.sos_emergency_alarm, alarmAttributes,
                 AudioManager.AUDIO_SESSION_ID_GENERATE)
             if (player != null) {
                 alarmPlayer = player
@@ -127,13 +149,12 @@ class SosController(private val service: Service) {
                     if (alarmPlayer === failed) releaseAlarmPlayer()
                     true
                 }
-                player.isLooping = true
+                player.setOnCompletionListener { finished ->
+                    if (alarmPlayer === finished) releaseAlarmPlayer()
+                }
                 player.start()
             }
         }.onFailure { releaseAlarmPlayer() }
-        runCatching {
-            vibrator.vibrate(VibrationEffect.createWaveform(longArrayOf(0, 230, 110, 230, 110, 440, 880), 0))
-        }
     }
 
     private fun releaseAlarmPlayer() {
@@ -142,19 +163,40 @@ class SosController(private val service: Service) {
         runCatching { player?.release() }
     }
 
-    private fun stopAlarm() {
-        releaseAlarmPlayer()
+    private fun stopCountdownVibration() {
         runCatching { vibrator.cancel() }
     }
 
+    @Suppress("DEPRECATION")
+    internal fun vibrateSafetyCheck() {
+        if (machine.state.phase == SosPhase.COUNTDOWN) return
+        runCatching {
+            val amplitude = if (vibrator.hasAmplitudeControl()) 255 else VibrationEffect.DEFAULT_AMPLITUDE
+            vibrator.vibrate(VibrationEffect.createOneShot(850, amplitude), alarmAttributes)
+        }
+    }
+
+    internal fun playSafetyReceipt() {
+        if (machine.state.phase == SosPhase.COUNTDOWN) pendingSafetyReceipt = true
+        else playReceiptSound()
+    }
+
+    private fun flushSafetyReceipt() {
+        if (!pendingSafetyReceipt) return
+        pendingSafetyReceipt = false
+        playReceiptSound()
+    }
+
     fun close() {
+        pendingSafetyReceipt = false
         if (machine.state.phase == SosPhase.COUNTDOWN) cancel(machine.state.incidentId)
         if (machine.state.phase == SosPhase.SENDING) {
             machine.finish(machine.state.incidentId, SosPhase.UNKNOWN,
                 "전송 중 감시가 종료되었습니다. 관리자 화면에서 접수 여부를 확인하세요.", SystemClock.elapsedRealtime())
             publish()
         }
-        stopAlarm()
+        stopCountdownVibration()
+        releaseAlarmPlayer()
         scope.cancel()
     }
 
