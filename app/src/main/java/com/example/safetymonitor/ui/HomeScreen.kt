@@ -1,5 +1,10 @@
 package com.example.safetymonitor.ui
 
+import com.example.safetymonitor.detection.events.*
+import androidx.compose.foundation.clickable
+import androidx.compose.runtime.*
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.TextButton
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -60,19 +65,73 @@ fun HomeScreen(
     watch: com.example.safetymonitor.watch.WatchSnapshot = com.example.safetymonitor.watch.WatchSnapshot(),
     watchNow: Long = System.currentTimeMillis(),
     onRefreshWatch: () -> Unit = {},
+    onTestVital: (Boolean) -> Unit = {},
+    development: Boolean = false,
     fallAlert: Boolean = false,
     accountBusy: Boolean = false
 ) {
+    val checks by SafetyCheckStore.state.collectAsState()
+    val records by WorkerEventStore.state.collectAsState()
+    val receipt by com.example.safetymonitor.sos.ReceiptAlarmStore.active.collectAsState()
+    val receiptReason by com.example.safetymonitor.sos.ReceiptAlarmStore.reason.collectAsState()
+    val sosState by com.example.safetymonitor.sos.SosStore.state.collectAsState()
+    val sending = records.firstOrNull { it.status == "전송 중" && it.event.playReceiptSound }
+    val sendingFall = sosState.phase == com.example.safetymonitor.sos.SosPhase.SENDING
+    val activeReason = when {
+        sendingFall -> "낙상"
+        sending != null -> sending.event.statusLabel
+        receipt != null -> receiptReason
+        else -> null
+    }
+    val alertActive = activeReason != null || fallAlert
+    val working = checks.zones.filter { it.stage == ZoneStage.WORKING }
+    var vitalTaps by remember { mutableIntStateOf(0) }
+    var vitalStarted by remember { mutableLongStateOf(0L) }
+    var vitalMenu by remember { mutableStateOf(false) }
+    var selectedTest by remember { mutableStateOf<Boolean?>(null) }
+    var testNotice by remember { mutableStateOf("") }
+    if (vitalMenu) AlertDialog(
+        onDismissRequest = { vitalMenu = false; selectedTest = null },
+        title = { Text("생체 신호 이상 테스트") },
+        text = { Column(Modifier.verticalScroll(rememberScrollState())) {
+            Text(if (development) "개발 모드: 서버 전송 없이 기록만 확인합니다."
+                else "실제 서버에 ‘테스트’ 이벤트를 전송하고, 접수되면 긴급 알림음이 울립니다.")
+            Text("가상 측정값으로 감지 규칙을 검사합니다. 실제 워치 수신·센서 정확도를 검증하는 기능은 아닙니다.")
+            WorkSafeButton("심박수 이상 테스트", { selectedTest = false }, enabled = !accountBusy && motion.monitoring)
+            WorkSafeButton("손목 온도 이상 테스트", { selectedTest = true }, enabled = !accountBusy && motion.monitoring)
+            selectedTest?.let { skin ->
+                Text(if (skin) "손목 온도 테스트를 선택했습니다." else "심박수 테스트를 선택했습니다.")
+                WorkSafeButton("테스트 실행", {
+                    onTestVital(skin); selectedTest = null
+                    testNotice = "요청했습니다. 자동 알림 전송 기록을 확인하세요. 재실행 간격은 10초입니다."
+                }, enabled = !accountBusy && motion.monitoring)
+            }
+            Text("작업 시간 초과 테스트: 진행 중인 작업을 1초 남기고, 이후 30초 무응답이면 실제 서버에 테스트 SOS가 전송됩니다.")
+            if (working.isEmpty()) Text("진행 중인 작업 없음 · 위험 비콘에서 작업을 먼저 시작하세요.")
+            working.forEach { zone ->
+                WorkSafeButton("비콘 #${zone.beaconId} 작업 남은 시간 1초", {
+                    SafetyCheckStore.respond(zone.id, CheckAction.TEST_SHORTEN)
+                    vitalMenu = false; selectedTest = null
+                }, enabled = !accountBusy && motion.monitoring)
+            }
+            if (!motion.monitoring) Text("로그인 후 감시가 실행 중이어야 합니다.")
+            Text(testNotice)
+        } },
+        confirmButton = { TextButton(onClick = { vitalMenu = false; selectedTest = null }) { Text("닫기") } }
+    )
     val detectionReady = motion.monitoring && motion.accelerometerActive &&
         motion.gyroscopeActive && motion.acceleration != null && motion.gyroscope != null
     val statusTitle = when {
-        fallAlert -> "낙상 감지됨"
-        !motion.monitoring -> "낙상 감지 중지"
-        !motion.accelerometerActive || !motion.gyroscopeActive -> "낙상 감지 불가"
+        activeReason != null -> activeReason
+        fallAlert -> "낙상"
+        !motion.monitoring -> "감시 중지"
+        checks.zones.any { it.stage == ZoneStage.OVERDUE } -> "작업 종료 확인 중"
+        checks.zones.any { it.stage == ZoneStage.APPROACH } -> "위험구역 접근"
+        working.isNotEmpty() -> "작업 중"
         !detectionReady -> "센서 수신 대기"
-        else -> "정상"
+        else -> "안전 감시 중"
     }
-    val statusTextColor = if (fallAlert) MaterialTheme.colorScheme.onErrorContainer
+    val statusTextColor = if (alertActive) MaterialTheme.colorScheme.onErrorContainer
         else MaterialTheme.colorScheme.onSurface
 
     Column(modifier = modifier.fillMaxSize()) {
@@ -86,7 +145,7 @@ fun HomeScreen(
 
             Surface(
                 modifier = Modifier.fillMaxWidth(),
-                color = if (fallAlert) MaterialTheme.colorScheme.errorContainer
+                color = if (alertActive) MaterialTheme.colorScheme.errorContainer
                     else MaterialTheme.colorScheme.surfaceVariant,
                 shape = RoundedCornerShape(5.dp)
             ) {
@@ -97,7 +156,7 @@ fun HomeScreen(
                     Text(
                         "실시간 감지 상태",
                         style = MaterialTheme.typography.labelLarge,
-                        color = if (fallAlert) MaterialTheme.colorScheme.error
+                        color = if (alertActive) MaterialTheme.colorScheme.error
                             else MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     Text(
@@ -105,26 +164,24 @@ fun HomeScreen(
                         style = MaterialTheme.typography.titleLarge,
                         color = statusTextColor
                     )
-                    Text(
-                        fallMessage,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = statusTextColor
-                    )
                     Surface(
-                        color = if (fallAlert) MaterialTheme.colorScheme.error
+                        color = if (alertActive) MaterialTheme.colorScheme.error
                             else MaterialTheme.colorScheme.secondaryContainer,
                         shape = RoundedCornerShape(3.dp)
                     ) {
                         Text(
                             when {
-                                fallAlert -> "HIGH"
-                                detectionReady -> "NORMAL"
+                                sendingFall || sending != null -> "SOS 전송 중"
+                                receipt != null -> "SOS 접수 · 알림음 재생 중"
+                                fallAlert -> "상태 확인 중"
+                                working.isNotEmpty() -> "작업 중"
+                                detectionReady -> "감시 중"
                                 else -> "대기"
                             },
                             modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
                             style = MaterialTheme.typography.bodySmall,
                             fontWeight = FontWeight.Bold,
-                            color = if (fallAlert) MaterialTheme.colorScheme.onError
+                            color = if (alertActive) MaterialTheme.colorScheme.onError
                                 else MaterialTheme.colorScheme.onSecondaryContainer
                         )
                     }
@@ -460,7 +517,13 @@ fun HomeScreen(
 
             // Preserved sensor info card (real motion rows + other examples)
             WorkSafeCard {
-                Text("센서 정보", style = MaterialTheme.typography.titleMedium)
+                Text("생체 신호 / 센서 정보", style = MaterialTheme.typography.titleMedium,
+                    modifier = Modifier.clickable {
+                        val now = android.os.SystemClock.elapsedRealtime()
+                        if (vitalTaps == 0 || now - vitalStarted >= 3_000L) { vitalTaps = 0; vitalStarted = now }
+                        vitalTaps++
+                        if (vitalTaps == 7) { vitalTaps = 0; vitalMenu = true; testNotice = "" }
+                    })
                 HomeInfoRow(
                     "가속도 센서",
                     motion.acceleration?.let {

@@ -53,7 +53,8 @@ class SosServerTest {
             try {
                 server.accept().use { socket ->
                     socket.soTimeout = 5_000
-                    val reader = socket.getInputStream().bufferedReader()
+                    // HTTP Content-Length is in bytes. ISO-8859-1 preserves one byte per character.
+                    val reader = socket.getInputStream().bufferedReader(Charsets.ISO_8859_1)
                     val first = reader.readLine()
                     assertEquals(expectedMethod, first.substringBefore(' '))
                     val headers = mutableListOf<String>()
@@ -64,7 +65,7 @@ class SosServerTest {
                     var read = 0
                     while (read < length) { val count = reader.read(chars, read, length - read); check(count > 0); read += count }
                     requests.add(Triple(first.split(' ')[1], headers.firstOrNull { it.startsWith("Authorization:", true) }
-                        ?.substringAfter(':')?.trim(), String(chars)))
+                        ?.substringAfter(':')?.trim(), String(chars).toByteArray(Charsets.ISO_8859_1).toString(Charsets.UTF_8)))
                     if (code != 0) {
                         val bytes = response.toByteArray()
                         socket.getOutputStream().apply {
@@ -229,7 +230,7 @@ class SosServerTest {
             assertEquals("Bearer test-token", request.second)
             val json = JSONObject(request.third)
             assertEquals("FALL_DETECTED", json.getString("eventType"))
-            assertEquals("ANDROID_AUTO_SOS", json.getString("alertSender"))
+            assertEquals("낙상 SOS", json.getString("alertSender"))
             assertEquals(incident.occurredAt, Instant.parse(json.getString("time")).toEpochMilli())
             assertFalse(json.has("workerId"))
         }

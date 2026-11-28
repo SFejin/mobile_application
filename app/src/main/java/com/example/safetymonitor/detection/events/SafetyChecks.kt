@@ -11,7 +11,7 @@ data class ZoneCheck(val id: String, val beaconId: Int, val event: DetectedEvent
 data class SafetyChecks(val heart: HeartCheck? = null, val zones: List<ZoneCheck> = emptyList()) {
     val hasPrompt: Boolean get() = heart != null || zones.any { it.stage != ZoneStage.WORKING }
 }
-enum class CheckAction { OK, HELP, PASS, START, FINISH, EXTEND }
+enum class CheckAction { OK, HELP, PASS, START, FINISH, EXTEND, TEST_SHORTEN }
 
 internal val workMinutes = listOf(5, 10, 15, 30)
 
@@ -82,7 +82,7 @@ internal class ZoneWorkChecks {
                 ZoneStage.APPROACH -> {
                     iterator.remove()
                     expired += zone.event.copy(
-                        sender = "ANDROID_DANGER_BEACON_${zone.beaconId}_APPROACH_UNCONFIRMED",
+                        sender = "위험지역 침입 · 비콘 #${zone.beaconId}",
                         description = "위험 비콘 #${zone.beaconId} · 접근 확인 무응답",
                         playReceiptSound = false
                     )
@@ -91,8 +91,10 @@ internal class ZoneWorkChecks {
                 ZoneStage.OVERDUE -> {
                     iterator.remove()
                     expired += zone.event.copy(
-                        sender = "ANDROID_DANGER_BEACON_${zone.beaconId}_WORK_END_UNCONFIRMED",
-                        description = "위험 비콘 #${zone.beaconId} · 작업 종료 확인 무응답"
+                        sender = "위험지역 작업 시간 초과 무응답 · 비콘 #${zone.beaconId}" +
+                            if (zone.event.description.startsWith("[테스트]")) " · 테스트" else "",
+                        description = (if (zone.event.description.startsWith("[테스트]")) "[테스트] " else "") +
+                            "위험 비콘 #${zone.beaconId} · 작업 종료 확인 무응답"
                     )
                 }
             }
@@ -104,6 +106,9 @@ internal class ZoneWorkChecks {
         val zone = checks.values.firstOrNull { it.id == id && now < it.deadline } ?: return
         val isNearby = zone.beaconId in nearby
         when {
+            zone.stage == ZoneStage.WORKING && action == CheckAction.TEST_SHORTEN ->
+                checks[zone.beaconId] = zone.copy(deadline = now + 1_000,
+                    event = zone.event.copy(description = "[테스트] 작업 시간 단축 · 비콘 #${zone.beaconId}"))
             zone.stage == ZoneStage.APPROACH && action == CheckAction.PASS -> checks.remove(zone.beaconId)
             zone.stage == ZoneStage.APPROACH && action == CheckAction.START && isNearby && minutes != null && minutes in workMinutes ->
                 checks[zone.beaconId] = zone.copy(id = newId(), stage = ZoneStage.WORKING,

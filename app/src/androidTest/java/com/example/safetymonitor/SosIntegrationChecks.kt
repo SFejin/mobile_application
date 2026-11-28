@@ -41,7 +41,7 @@ object SosIntegrationChecks {
             check(request.headers.any { it.equals("Authorization: Bearer test-token", true) })
             val json = JSONObject(request.body)
             check(json.getString("eventType") == "FALL_DETECTED")
-            check(json.getString("alertSender") == "ANDROID_AUTO_SOS")
+            check(json.getString("alertSender") == "낙상 SOS")
             check(Instant.parse(json.getString("time")).toEpochMilli() == incident.occurredAt)
             check(!json.has("workerId"))
         }
@@ -104,7 +104,8 @@ object SosIntegrationChecks {
                 try {
                     server.accept().use { socket ->
                         socket.soTimeout = 10_000
-                        val reader = socket.getInputStream().bufferedReader()
+                        // HTTP Content-Length is in bytes. ISO-8859-1 preserves one byte per character.
+                        val reader = socket.getInputStream().bufferedReader(Charsets.ISO_8859_1)
                         capture.firstLine = reader.readLine()
                         val headers = mutableListOf<String>()
                         while (true) { val line = reader.readLine() ?: break; if (line.isEmpty()) break; headers.add(line) }
@@ -114,7 +115,7 @@ object SosIntegrationChecks {
                         val chars = CharArray(length)
                         var read = 0
                         while (read < length) { val count = reader.read(chars, read, length - read); check(count > 0); read += count }
-                        capture.body = String(chars)
+                        capture.body = String(chars).toByteArray(Charsets.ISO_8859_1).toString(Charsets.UTF_8)
                         if (code != 0) {
                             val bytes = body.toByteArray(Charsets.UTF_8)
                             socket.getOutputStream().apply {

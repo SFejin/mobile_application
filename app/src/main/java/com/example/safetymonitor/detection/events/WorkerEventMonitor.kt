@@ -3,6 +3,7 @@ package com.example.safetymonitor.detection.events
 import android.os.SystemClock
 import com.example.safetymonitor.detection.beacon.BeaconMonitoringStore
 import com.example.safetymonitor.network.WorkerApiClient
+import com.example.safetymonitor.network.WorkerStatusReporter
 import com.example.safetymonitor.sos.SosSession
 import com.example.safetymonitor.sos.SosStore
 import com.example.safetymonitor.watch.WatchDataRepository
@@ -14,6 +15,8 @@ import java.time.Instant
 
 data class WorkerEventRecord(val id: Long, val event: DetectedEvent, val at: Instant, val status: String)
 object WorkerEventStore {
+    val heartStatus = MutableStateFlow("심박수 수신 대기")
+    val skinStatus = MutableStateFlow("손목 온도 기준선 준비 중 · 온도 판단 대기")
     private val mutable = MutableStateFlow<List<WorkerEventRecord>>(emptyList())
     val state = mutable.asStateFlow()
     private var nextId = 0L
@@ -30,11 +33,22 @@ object WorkerEventStore {
 class WorkerEventMonitor(private val feedback: SafetyCheckFeedback) {
     private var scope: CoroutineScope? = null
     private var binding: SosSession? = null
+    private var testSender: ((DetectedEvent) -> Unit)? = null
+    private var lastTestAt = 0L
+    fun testVital(skin: Boolean) {
+        val session = binding ?: return
+        if (SosStore.session.value !== session || !session.valid()) return
+        val now = SystemClock.elapsedRealtime()
+        if (lastTestAt != 0L && now - lastTestAt < 10_000L) return
+        lastTestAt = now
+        testSender?.invoke(vitalTestEvent(skin, System.currentTimeMillis()))
+    }
     private val owned = mutableSetOf<Long>()
     fun bind(session: SosSession) {
         if (binding === session) return
         close()
         binding = session
+        WorkerStatusReporter.start(session)
         val owner = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
         scope = owner
         val queue = Channel<WorkerEventRecord>(32)
@@ -61,28 +75,23 @@ class WorkerEventMonitor(private val feedback: SafetyCheckFeedback) {
                 }
             } finally { queue.cancel() }
         }
+        testSender = ::send
         val vital = VitalRule(EventSettings.state.value)
         val danger = DangerZoneRule(quickEntry = true)
         val zones = ZoneWorkChecks()
-        val heart = HeartResponseWindow()
+        var lastSummaryTime: Long? = null
         fun current() = SosStore.session.value === session && session.valid()
         fun publishChecks() {
-            val next = SafetyChecks(heart.pending, zones.active)
+            val next = SafetyChecks(null, zones.active)
             SafetyCheckStore.publish(next)
             feedback.update(next)
-        }
-        fun sendHeart(event: DetectedEvent) {
-            vital.markHeartReported()
-            send(event)
         }
         SafetyCheckStore.handler = respond@{ id, action, minutes ->
             if (!current()) return@respond
             val now = SystemClock.elapsedRealtime()
             val nearby = nearbyDangerBeacons(BeaconMonitoringStore.state.value, now)
             zones.advance(now, nearby).forEach(::send)
-            heart.expire(now)?.let(::sendHeart)
-            if (heart.pending?.id == id) heart.respond(id, action)?.let(::sendHeart)
-            else zones.respond(id, action, minutes, now, nearby)
+            zones.respond(id, action, minutes, now, nearby)
             publishChecks()
         }
         owner.launch {
@@ -92,12 +101,17 @@ class WorkerEventMonitor(private val feedback: SafetyCheckFeedback) {
                 val nearby = nearbyDangerBeacons(snapshot, now)
                 danger.evaluate(snapshot, now).forEach { zones.approach(it, now) }
                 zones.advance(now, nearby).forEach(::send)
-                heart.expire(now)?.let(::sendHeart)
-                for (event in vital.evaluate(WatchDataRepository.state.value.summary, System.currentTimeMillis())) {
-                    if (event.sender == "ANDROID_HEART_RATE") heart.complete()
-                    send(event)
+                val watch = WatchDataRepository.state.value
+                val sample = watch.summary
+                if (sample != null && sample.timestamp != lastSummaryTime) {
+                    lastSummaryTime = sample.timestamp
+                    vital.evaluate(sample, System.currentTimeMillis()).forEach(::send)
+                    WorkerStatusReporter.sample(session, watch, vital.heartAssessment)
                 }
-                heart.observe(vital.heartCheck, now)
+                WorkerEventStore.heartStatus.value = if (sample == null || sample.stale(System.currentTimeMillis()) || sample.timestamp > System.currentTimeMillis() + 60_000 || sample.intervalMinutes != 5)
+                    "심박수 수신 지연 · 판단 대기" else vital.heartStatus
+                WorkerEventStore.skinStatus.value = if (sample == null || sample.stale(System.currentTimeMillis()) || sample.timestamp > System.currentTimeMillis() + 60_000 || sample.intervalMinutes != 5)
+                    "손목·주변 온도 수신 지연 · 온도 판단 대기" else vital.skinStatus
                 publishChecks()
                 delay(1_000)
             }
@@ -106,6 +120,11 @@ class WorkerEventMonitor(private val feedback: SafetyCheckFeedback) {
         }
     }
     fun close() {
+        WorkerEventStore.heartStatus.value = "심박수 수신 대기"
+        WorkerEventStore.skinStatus.value = "손목 온도 기준선 준비 중 · 온도 판단 대기"
+        testSender = null
+        lastTestAt = 0L
+        binding?.let { WorkerStatusReporter.stop(it) }
         scope?.cancel(); scope = null; binding = null
         SafetyCheckStore.handler = null
         SafetyCheckStore.publish(SafetyChecks())

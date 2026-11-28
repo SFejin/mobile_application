@@ -33,7 +33,7 @@ class WatchSummaryTest {
             "hr_avg" to Double.NaN, "skin_c" to Double.POSITIVE_INFINITY,
             "hr_avg" to 0.0, "skin_c" to 99.0, "ambient_c" to -99.0,
             "hr_count" to 0, "skin_count" to -1, "timestamp" to "2000000",
-            "has_hr" to "true", "interval_minutes" to 1,
+            "has_hr" to "true", "interval_minutes" to 1, "interval_minutes" to 10,
             "window_start" to (now + 1), "timestamp" to (now + 60_001))) {
             assertNull(key, WatchSummary.parse(payload().apply { put(key, value) }, now))
         }

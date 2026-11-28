@@ -42,6 +42,10 @@ class WorkerApiClient(baseUrl: String, allowInsecureHttp: Boolean = false) {
         parseResponse(request("POST", "/api/worker/events", 201, accessToken, request.toJson()), { WorkerEventInfo.fromJson(it) })
     }
 
+    suspend fun reportStatus(accessToken: String, report: WorkerStatusRequest): WorkerStatusResult = withContext(Dispatchers.IO) {
+        parseResponse(request("POST", "/api/worker/me/status", 200, accessToken, report.toJson()), { WorkerStatusResult.fromJson(it) })
+    }
+
     suspend fun getProfile(accessToken: String): WorkerInfo = withContext(Dispatchers.IO) {
         parseResponse(request("GET", "/api/worker/me", 200, accessToken), { WorkerInfo.fromJson(it) })
     }

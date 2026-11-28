@@ -17,7 +17,7 @@ class EventRulesTest {
         val rule = VitalRule(EventConfig(VitalLimits(50.0, 120.0), VitalLimits(20.0, 38.0)))
         assertTrue(evaluate(rule, 0).isEmpty())
         assertTrue(evaluate(rule, 0).isEmpty())
-        assertEquals(setOf("ANDROID_HEART_RATE", "ANDROID_SKIN_TEMPERATURE"), evaluate(rule, 1).map { it.sender }.toSet())
+        assertEquals(setOf("심박수 이상 SOS", "체온 이상 SOS"), evaluate(rule, 1).map { it.sender }.toSet())
         assertTrue(evaluate(rule, 2).isEmpty())
         assertTrue(evaluate(rule, 3, null, null).isEmpty())
         assertTrue(evaluate(rule, 4).isEmpty())

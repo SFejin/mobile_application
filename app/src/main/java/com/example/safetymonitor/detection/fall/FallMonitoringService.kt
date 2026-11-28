@@ -125,11 +125,14 @@ class FallMonitoringService : Service() {
             handler.postDelayed(checkSession, 1_000)
         }
         completeStart(session, true)
+        if (intent?.action == "com.example.safetymonitor.TEST_VITAL")
+            workerEvents.testVital(intent.getBooleanExtra("skin", false))
         if (intent?.action == SosController.ACTION_TEST && BuildConfig.DEBUG) sos.detect(test = true)
         return START_STICKY
     }
 
     private fun rejectStart(startId: Int, session: SosSession?): Int {
+        session?.let { com.example.safetymonitor.network.WorkerStatusReporter.stop(it) }
         setEnabled(this, false)
         completeStart(session, false)
         stopSelf(startId)

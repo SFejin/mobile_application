@@ -86,6 +86,9 @@ data class WorkerPasswordConfirmation(val currentPassword: String) {
     override fun toString(): String = "WorkerPasswordConfirmation(currentPassword=[REDACTED])"
 }
 
+internal const val HEART_RATE_ALERT_SENDER = "심박수 이상 SOS"
+internal const val LEGACY_HEART_RATE_ALERT_SENDER = "ANDROID_HEART_RATE"
+
 enum class WorkerEventType { FALL_DETECTED, DANGER_ZONE_APPROACH, ABNORMAL_VITAL }
 
 data class WorkerEventRequest(val time: Instant, val eventType: WorkerEventType, val alertSender: String) {

@@ -2,6 +2,10 @@ package com.example.safetymonitor.detection.events
 
 import com.example.safetymonitor.detection.beacon.*
 import com.example.safetymonitor.network.WorkerEventType
+import com.example.safetymonitor.network.HEART_RATE_ALERT_SENDER
+import com.example.safetymonitor.network.HeartAssessment
+import com.example.safetymonitor.network.HeartRateStatus
+import java.time.Instant
 import com.example.safetymonitor.watch.WatchSummary
 
 data class VitalLimits(val low: Double, val high: Double) {
@@ -18,7 +22,7 @@ data class SkinProfiles(val limits: Map<SkinEnvironment, VitalLimits> = emptyMap
     fun config(heart: VitalLimits?, environment: SkinEnvironment) = EventConfig(heart, limits[environment], environment)
 }
 data class EventConfig(val heart: VitalLimits? = null, val skin: VitalLimits? = null,
-    val skinEnvironment: SkinEnvironment = SkinEnvironment.NORMAL) {
+    val skinEnvironment: SkinEnvironment = SkinEnvironment.NORMAL, val skinRise: Double? = null) {
     init {
         require(heart == null || (heart.low >= 35 && heart.high <= 230))
         require(skin == null || (skin.low >= 10 && skin.high <= 50))
@@ -52,9 +56,16 @@ class VitalRule(private val config: EventConfig) {
             return true
         }
     }
+    var heartStatus = "심박수 수신 대기"
+        private set
     private var previous: WatchSummary? = null
     private val heart = Track()
     private val skin = Track()
+    private val skinTrend = SkinTrendRule()
+    val skinBaseline: Double? get() = skinTrend.baseline
+    val skinStatus: String get() = skinTrend.status
+    var heartAssessment: HeartAssessment? = null
+        private set
     var heartCheck: DetectedEvent? = null
         private set
 
@@ -64,7 +75,8 @@ class VitalRule(private val config: EventConfig) {
     }
 
     fun evaluate(summary: WatchSummary?, now: Long): List<DetectedEvent> {
-        if (summary == null || summary.stale(now) || summary.timestamp > now + 60_000) {
+        heartAssessment = null
+        if (summary == null || summary.intervalMinutes != 5 || summary.stale(now) || summary.timestamp > now + 60_000) {
             heartCheck = null
             return emptyList()
         }
@@ -76,12 +88,27 @@ class VitalRule(private val config: EventConfig) {
         val result = mutableListOf<DetectedEvent>()
         val hr = summary.heartRate?.takeIf { it in 35.0..230.0 && summary.heartCount >= 3 }
         val temperature = summary.skinC?.takeIf { it in 10.0..50.0 && summary.skinCount > 0 }
-        val heartEvent = DetectedEvent(WorkerEventType.ABNORMAL_VITAL, "ANDROID_HEART_RATE", "심박수 요약 이상 · $hr bpm")
-        val sendHeart = heart.evaluate(hr, config.heart, contiguous, upperInclusive = true)
+        val heartEvent = DetectedEvent(WorkerEventType.ABNORMAL_VITAL, HEART_RATE_ALERT_SENDER, "심박수 요약 이상 · $hr bpm")
+        val sendHeart = heart.evaluate(hr, config.heart, contiguous)
+        if (hr != null && config.heart != null) {
+            val status = when {
+                heart.direction == 0 -> HeartRateStatus.NORMAL
+                heart.count >= 2 -> HeartRateStatus.DANGER
+                else -> null
+            }
+            heartAssessment = status?.let { HeartAssessment(it, Instant.ofEpochMilli(summary.timestamp)) }
+        }
         heartCheck = heartEvent.takeIf { heart.count == 1 && !heart.alerted }
+        heartStatus = when {
+            hr == null -> "심박수 측정 부족 · 판단 대기"
+            heart.direction == 0 -> "심박수 정상 범위"
+            heart.count >= 2 -> "심박수 이상 감지 · 연속 두 구간"
+            else -> "심박수 이상 의심 · 다음 구간 확인 중"
+        }
         if (sendHeart) result += heartEvent
-        if (skin.evaluate(temperature, config.skin, contiguous)) result += DetectedEvent(
-            WorkerEventType.ABNORMAL_VITAL, "ANDROID_SKIN_TEMPERATURE", "피부 온도 이상 · $temperature °C")
+        if (if (config.skinRise != null) skinTrend.evaluate(temperature, contiguous, config.skinRise, summary.ambientC)
+            else skin.evaluate(temperature, config.skin, contiguous, upperInclusive = true)) result += DetectedEvent(
+            WorkerEventType.ABNORMAL_VITAL, "체온 이상 SOS", "손목 피부 온도 이상 · $temperature °C · 주변 ${summary.ambientC ?: "측정 없음"} °C")
         return result
     }
 }
@@ -132,3 +159,14 @@ internal fun nearbyDangerBeacons(snapshot: BeaconSnapshot, now: Long): Set<Int> 
             now - sample.lastSeenElapsedMillis in 0..5_000 }
     }.toSet()
 }
+
+/** User-facing cause, independent of network event codes and test suffixes. */
+val DetectedEvent.statusLabel: String
+    get() = when {
+        type == WorkerEventType.FALL_DETECTED -> "낙상"
+        sender.startsWith("심박수") || sender == "ANDROID_HEART_RATE" -> "심박수 이상"
+        sender.startsWith("체온") || sender == "ANDROID_SKIN_TEMPERATURE" -> "체온 이상"
+        type == WorkerEventType.DANGER_ZONE_APPROACH && playReceiptSound -> "위험구역 작업 시간 초과"
+        type == WorkerEventType.DANGER_ZONE_APPROACH -> "위험구역 접근"
+        else -> "생체 신호 이상"
+    }

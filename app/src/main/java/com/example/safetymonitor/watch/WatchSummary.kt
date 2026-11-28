@@ -39,7 +39,7 @@ data class WatchSummary(
                 measurement("has_ambient", "ambient_c", -30.0..70.0), int("hr_count"), int("skin_count"))
             require(result.windowStart > 0 && result.timestamp > result.windowStart)
             require(result.timestamp - 60_000L <= now)
-            require(result.intervalMinutes == 5 || result.intervalMinutes == 10)
+            require(result.intervalMinutes == 5)
             require(result.heartCount >= 0 && result.skinCount >= 0)
             require((result.heartRate != null) == (result.heartCount > 0))
             require((result.skinC != null) == (result.skinCount > 0))

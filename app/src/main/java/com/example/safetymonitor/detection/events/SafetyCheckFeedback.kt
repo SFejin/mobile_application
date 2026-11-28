@@ -47,7 +47,7 @@ class SafetyCheckFeedback(private val service: Service, private val sos: SosCont
 
     fun result(event: DetectedEvent, status: String, accepted: Boolean) {
         val title = if (event.playReceiptSound) {
-            if (accepted) sos.playSafetyReceipt()
+            if (accepted) sos.playSafetyReceipt(event.statusLabel)
             if (accepted) "SOS 서버 접수 완료" else "SOS 전송 상태 확인"
         } else {
             if (accepted) "위험 구역 알림 접수 완료" else "위험 구역 알림 전송 상태 확인"

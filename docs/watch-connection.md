@@ -31,7 +31,7 @@
 
 ## 수신과 상태
 
-- `/workersafety/summary` DataItem을 수신합니다. 워치의 센서 수집·5/10분 전송 로직은 유지합니다.
+- `/workersafety/summary` DataItem의 5분 요약만 수신합니다. 워치 전송 간격을 5분으로 설정하세요. 10분 요약은 수락하지 않고 설정 안내를 표시합니다. 워치 앱 자체의 설정 변경은 이 휴대폰 저장소에 포함되지 않습니다.
 - `WearableListenerService`로 백그라운드 데이터/연결 변경을 받고 최신 DataItem을 조회합니다.
 - ViewModel이 살아 있는 동안 15초마다 연결과 최신 데이터를 확인하고, 홈 복귀/버튼에서도 확인합니다.
 - 하나의 reachable `workersafety_watch` 노드만 사용합니다. 여러 개면 선택을 추정하지 않고 하나만 연결하도록 안내합니다.

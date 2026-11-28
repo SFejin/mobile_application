@@ -67,9 +67,10 @@ class WorkerProfileApiTest {
     @Test fun vitalAndDangerEventsUseAuthenticatedEventEndpoint() {
         val time = java.time.Instant.parse("2026-11-25T00:00:00Z")
         for ((type, sender) in listOf(
-            WorkerEventType.ABNORMAL_VITAL to "ANDROID_HEART_RATE",
-            WorkerEventType.ABNORMAL_VITAL to "ANDROID_SKIN_TEMPERATURE",
-            WorkerEventType.DANGER_ZONE_APPROACH to "ANDROID_DANGER_BEACON_42"
+            WorkerEventType.ABNORMAL_VITAL to "심박수 이상 SOS",
+            WorkerEventType.ABNORMAL_VITAL to "체온 이상 SOS",
+            WorkerEventType.DANGER_ZONE_APPROACH to "위험지역 침입 · 비콘 #42",
+            WorkerEventType.DANGER_ZONE_APPROACH to "위험지역 작업 시간 초과 무응답 · 비콘 #42"
         )) {
             val response = """{"eventId":1,"workerId":77,"workerName":"worker","time":"$time","receivedAt":"$time","eventType":"${type.name}","alertSender":"$sender"}"""
             server(201, response) { api, captured ->
@@ -84,6 +85,43 @@ class WorkerProfileApiTest {
                 assertEquals(type.name, json.getString("eventType"))
                 assertEquals(sender, json.getString("alertSender"))
             }
+        }
+    }
+
+    @Test fun monitoringReportUsesNewEndpointAndDoesNotSendRawVitalsOrIdentity() {
+        val time = java.time.Instant.parse("2026-11-27T03:10:00Z")
+        for (heart in listOf(null, HeartAssessment(HeartRateStatus.NORMAL, time), HeartAssessment(HeartRateStatus.DANGER, time))) {
+            val response = """
+                {"monitoringStatus":"RUNNING","reportedAt":"$time","lastSeenAt":"$time","watchLastSeenAt":"$time",
+                 "heartRateStatus":${heart?.let { "\"${it.status}\"" } ?: "null"},
+                 "measuredAt":${heart?.let { "\"$time\"" } ?: "null"},
+                 "heartRateDataStatus":"${if (heart == null) "NOT_RECEIVED" else "FRESH"}"}
+            """.trimIndent()
+            server(200, response) { api, captured ->
+                val result = runBlocking { api.reportStatus("worker-token", WorkerStatusRequest(MonitoringStatus.RUNNING, time, time, heart)) }
+                assertEquals(heart, result.heart)
+                val request = captured.get()
+                assertEquals("POST", request.method)
+                assertEquals("/api/worker/me/status", request.path)
+                assertEquals("Bearer worker-token", request.authorization)
+                val json = JSONObject(request.body)
+                val keys = setOf("monitoringStatus", "reportedAt", "devices") + if (heart == null) emptySet() else setOf("heartRateStatus", "measuredAt")
+                assertEquals(keys, json.keys().asSequence().toSet())
+                assertEquals("워치", json.getJSONArray("devices").getJSONObject(0).getString("type"))
+                assertEquals(time.toString(), json.getJSONArray("devices").getJSONObject(0).getString("lastSeenAt"))
+                if (heart != null) assertEquals(time.toString(), json.getString("measuredAt"))
+            }
+        }
+        val stopped = WorkerStatusRequest(MonitoringStatus.STOPPED, time).toJson()
+        assertEquals(setOf("monitoringStatus", "reportedAt"), stopped.keys().asSequence().toSet())
+    }
+
+    @Test fun statusReportPropagatesAuthenticationAndOrderingFailures() {
+        for (status in listOf(401, 409, 500)) server(status, """{"code":"STATUS_ERROR","message":"거절"}""") { api, _ ->
+            val error = assertThrows(WorkerApiException::class.java) {
+                runBlocking { api.reportStatus("token", WorkerStatusRequest(MonitoringStatus.STOPPED, java.time.Instant.now())) }
+            }
+            assertEquals(status, error.httpStatus)
         }
     }
 

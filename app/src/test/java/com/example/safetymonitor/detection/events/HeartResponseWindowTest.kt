@@ -5,7 +5,7 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class HeartResponseWindowTest {
-    private val first = DetectedEvent(WorkerEventType.ABNORMAL_VITAL, "ANDROID_HEART_RATE", "48 bpm")
+    private val first = DetectedEvent(WorkerEventType.ABNORMAL_VITAL, "심박수 이상 SOS", "48 bpm")
 
     @Test fun unansweredCheckEscalatesOnceEvenIfNoFurtherSummaryArrives() {
         val window = HeartResponseWindow()

@@ -10,7 +10,7 @@ import java.io.IOException
 import java.time.Instant
 
 class EventSenderTest {
-    private val event = DetectedEvent(WorkerEventType.ABNORMAL_VITAL, "ANDROID_SKIN_TEMPERATURE", "test")
+    private val event = DetectedEvent(WorkerEventType.ABNORMAL_VITAL, "체온 이상 SOS", "test")
     private fun session() = SosSession("http://localhost", 7, "token", Instant.now().plusSeconds(600))
     @Test fun sendsContractAndValidatesWorkerAndEvent() = runBlocking {
         val session = session()
@@ -18,7 +18,7 @@ class EventSenderTest {
         val status = deliverEvent(session, event, now, { true }) { token, request ->
             assertEquals("token", token); assertEquals(now, request.time)
             assertEquals(WorkerEventType.ABNORMAL_VITAL, request.eventType)
-            assertEquals("ANDROID_SKIN_TEMPERATURE", request.alertSender)
+            assertEquals("체온 이상 SOS", request.alertSender)
             WorkerEventInfo(1, 7, "worker", now, now, request.eventType, request.alertSender, null, null, null)
         }
         assertTrue(status.startsWith("서버 접수 완료"))

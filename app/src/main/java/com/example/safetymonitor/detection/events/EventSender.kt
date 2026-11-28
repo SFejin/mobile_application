@@ -13,7 +13,10 @@ internal suspend fun deliverEvent(session: SosSession, event: DetectedEvent, at:
     val request = WorkerEventRequest(at, event.type, event.sender)
     return try {
         val result = send(session.token, request)
-        if (result.workerId != session.workerId || result.eventType != event.type || result.alertSender != event.sender)
+        val matchingSender = result.alertSender == event.sender ||
+            (event.type == WorkerEventType.ABNORMAL_VITAL && event.sender == HEART_RATE_ALERT_SENDER &&
+                result.alertSender == LEGACY_HEART_RATE_ALERT_SENDER)
+        if (result.workerId != session.workerId || result.eventType != event.type || !matchingSender)
             "응답 불일치 · 관리자에게 접수 확인 필요"
         else {
             onAccepted()

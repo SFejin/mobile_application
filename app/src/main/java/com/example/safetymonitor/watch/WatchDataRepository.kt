@@ -143,7 +143,9 @@ object WatchDataRepository {
                 val sample = WatchSummary.parse(values, now)
                 val verdict = if (sample == null) Result.INVALID_DATA else readings.admit(node, sample, id)
                 snapshot = when {
-                    sample == null -> snapshot.copy(notice = "워치 데이터 형식 또는 기기 시각을 확인해주세요.")
+                    sample == null -> snapshot.copy(notice =
+                        if (values["interval_minutes"] == 10) "서버 보고는 5분 요약만 지원합니다. 워치 전송 간격을 5분으로 설정해주세요."
+                        else "워치 데이터 형식 또는 기기 시각을 확인해주세요.")
                     verdict == Result.NEW_WINDOW_REQUIRED -> snapshot.copy(notice =
                         if (sample.windowStart < readings.signedInAt) "로그인 이후의 새 측정 구간을 기다리고 있습니다."
                         else "이전 구간과 겹치지 않는 새 측정 구간을 기다리고 있습니다.")

@@ -83,7 +83,7 @@ object SosServer {
         return try {
             val (code, body) = request(session,
                 JSONObject().put("time", Instant.ofEpochMilli(state.occurredAt).toString())
-                    .put("eventType", "FALL_DETECTED").put("alertSender", "ANDROID_AUTO_SOS"))
+                    .put("eventType", "FALL_DETECTED").put("alertSender", "낙상 SOS"))
             when {
                 code == 201 -> {
                     val json = JSONObject(body)

@@ -15,7 +15,7 @@ Debug 빌드에서 SOS 연습은 동일한 대기·취소 흐름을 사용하지
 
 - 로그인: `POST /api/worker/auth/login`, JSON `workerId`(숫자), `password`.
 - 이벤트: `POST /api/worker/events`, `Authorization: Bearer <accessToken>`.
-- 본문: `time`(낙상 시각의 ISO-8601 UTC 문자열), `eventType: FALL_DETECTED`, `alertSender: ANDROID_AUTO_SOS`.
+- 본문: `time`(낙상 시각의 ISO-8601 UTC 문자열), `eventType: FALL_DETECTED`, `alertSender: 낙상 SOS`.
 - 작업자는 요청 본문의 ID가 아닌 인증 토큰으로 식별됩니다.
 - HTTP 201 및 응답의 작업자/이벤트 종류를 확인한 뒤에만 접수 완료로 표시합니다.
 - 서버 코드 변경은 필요 없습니다. 관리자 웹에서는 기존 낙상 이벤트 목록으로 조회합니다. 별도의 `AUTO_SOS` 이벤트 종류나 관리자 푸시·소리 알림은 추가하지 않았습니다.

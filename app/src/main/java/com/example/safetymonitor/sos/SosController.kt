@@ -29,11 +29,13 @@ class SosController(private val service: Service) {
         .build()
     private var alarmPlayer: MediaPlayer? = null
     private var pendingSafetyReceipt = false
+    private var pendingReceiptReason = "낙상"
     private val machine: SosStateMachine
     private var target: SosSession? = null
     private var timer: Job? = null
 
     init {
+        ReceiptAlarmStore.onSilence = { silenceReceipt() }
         SosStore.initialize(service)
         machine = SosStateMachine(SosStore.state.value)
         manager.createNotificationChannel(NotificationChannel(CHANNEL, "자동 SOS", NotificationManager.IMPORTANCE_HIGH).apply {
@@ -126,6 +128,11 @@ class SosController(private val service: Service) {
 
     @Suppress("DEPRECATION") // AudioAttributes keeps alarm vibration available on Android 8+.
     private fun startCountdownVibration() {
+        if (ReceiptAlarmStore.active.value != null) {
+            pendingSafetyReceipt = true
+            pendingReceiptReason = ReceiptAlarmStore.reason.value
+        }
+        ReceiptAlarmStore.clear()
         releaseAlarmPlayer()
         runCatching {
             val timings = longArrayOf(0, 850, 250)
@@ -138,8 +145,9 @@ class SosController(private val service: Service) {
         }
     }
 
-    private fun playReceiptSound() {
+    private fun playReceiptSound(reason: String = "낙상") {
         releaseAlarmPlayer()
+        ReceiptAlarmStore.show(UUID.randomUUID().toString(), reason)
         runCatching {
             val player = MediaPlayer.create(service, R.raw.sos_emergency_alarm, alarmAttributes,
                 AudioManager.AUDIO_SESSION_ID_GENERATE)
@@ -149,12 +157,15 @@ class SosController(private val service: Service) {
                     if (alarmPlayer === failed) releaseAlarmPlayer()
                     true
                 }
-                player.setOnCompletionListener { finished ->
-                    if (alarmPlayer === finished) releaseAlarmPlayer()
-                }
+                player.isLooping = true
                 player.start()
             }
         }.onFailure { releaseAlarmPlayer() }
+    }
+
+    private fun silenceReceipt() {
+        ReceiptAlarmStore.clear()
+        releaseAlarmPlayer()
     }
 
     private fun releaseAlarmPlayer() {
@@ -169,25 +180,29 @@ class SosController(private val service: Service) {
 
     @Suppress("DEPRECATION")
     internal fun vibrateSafetyCheck() {
-        if (machine.state.phase == SosPhase.COUNTDOWN) return
+        if (machine.state.phase == SosPhase.COUNTDOWN || ReceiptAlarmStore.active.value != null) return
         runCatching {
             val amplitude = if (vibrator.hasAmplitudeControl()) 255 else VibrationEffect.DEFAULT_AMPLITUDE
             vibrator.vibrate(VibrationEffect.createOneShot(850, amplitude), alarmAttributes)
         }
     }
 
-    internal fun playSafetyReceipt() {
-        if (machine.state.phase == SosPhase.COUNTDOWN) pendingSafetyReceipt = true
-        else playReceiptSound()
+    internal fun playSafetyReceipt(reason: String) {
+        if (machine.state.phase == SosPhase.COUNTDOWN) {
+            pendingSafetyReceipt = true
+            pendingReceiptReason = reason
+        } else playReceiptSound(reason)
     }
 
     private fun flushSafetyReceipt() {
         if (!pendingSafetyReceipt) return
         pendingSafetyReceipt = false
-        playReceiptSound()
+        playReceiptSound(pendingReceiptReason)
     }
 
     fun close() {
+        ReceiptAlarmStore.onSilence = null
+        ReceiptAlarmStore.clear()
         pendingSafetyReceipt = false
         if (machine.state.phase == SosPhase.COUNTDOWN) cancel(machine.state.incidentId)
         if (machine.state.phase == SosPhase.SENDING) {

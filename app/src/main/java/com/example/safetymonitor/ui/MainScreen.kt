@@ -168,6 +168,8 @@ fun MainScreen(
                         watch = viewModel.watch,
                         watchNow = viewModel.watchNow,
                         onRefreshWatch = viewModel::refreshWatch,
+                        onTestVital = viewModel::testVital,
+                        development = viewModel.isDevelopment,
                         fallMessage = viewModel.fallMessage,
                         fallAlert = viewModel.fallAlert,
                         beacon = viewModel.beacon,
@@ -303,8 +305,11 @@ fun MainScreen(
     dialog?.let { state ->
         WorkSafeDialog(state, onDismiss = { dialog = null }, onConfirmWithdrawal = { dialog = null })
     }
+    val receiptAlarm by com.example.safetymonitor.sos.ReceiptAlarmStore.active.collectAsState()
     val workerChecks by SafetyCheckStore.state.collectAsState()
-    if (viewModel.sos.phase != SosPhase.COUNTDOWN && viewModel.sosSession != null && workerChecks.hasPrompt) {
+    if (receiptAlarm != null) {
+        ReceiptAlarmDialog(receiptAlarm!!)
+    } else if (viewModel.sos.phase != SosPhase.COUNTDOWN && viewModel.sosSession != null && workerChecks.hasPrompt) {
         SafetyCheckDialogs(workerChecks)
     } else {
         SosCountdownDialog(viewModel)

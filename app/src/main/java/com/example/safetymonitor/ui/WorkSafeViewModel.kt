@@ -340,6 +340,8 @@ class WorkSafeViewModel(application: Application) : AndroidViewModel(application
         if (SosStore.state.value.active) return@accountAction "SOS 처리 중에는 로그아웃할 수 없습니다."
         val session = authenticatedSession() ?: return@accountAction "로그인된 계정이 없습니다."
         withContext(NonCancellable) {
+            FallMonitoringService.stop(getApplication())
+            com.example.safetymonitor.network.WorkerStatusReporter.stop(session).await()
             invalidateAccount(session)
             if (!session.isDevelopment) api(session).logout(session.token)
             null
@@ -531,6 +533,12 @@ class WorkSafeViewModel(application: Application) : AndroidViewModel(application
         if (sosSession?.let(::isCurrent) != true || state.phase != SosPhase.COUNTDOWN || state.incidentId != incidentId) return
         getApplication<Application>().startService(Intent(getApplication(), FallMonitoringService::class.java)
             .setAction(SosController.ACTION_CANCEL).putExtra(SosController.EXTRA_ID, incidentId))
+    }
+
+    fun testVital(skin: Boolean) {
+        if (authenticatedSession() == null || !FallMonitoringStore.state.value.motion.monitoring) return
+        getApplication<Application>().startService(Intent(getApplication(), FallMonitoringService::class.java)
+            .setAction("com.example.safetymonitor.TEST_VITAL").putExtra("skin", skin))
     }
 
     fun testSos() {
